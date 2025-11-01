@@ -1140,26 +1140,40 @@ VALUES (
 
       print(f'📍 Parsed endpoint - Host: {host}, Path: {path}, Base path: {base_path}')
 
-      # Step 2: Create UC HTTP Connection
+      # Step 2: Create UC HTTP Connection (or reuse existing)
       connection_name = f'{api_name.lower().replace(" ", "_")}_connection'
 
-      print(f'🔐 Creating UC HTTP connection: {connection_name}')
+      print(f'🔐 Checking for existing UC HTTP connection: {connection_name}')
 
       w = get_workspace_client()
-      connection_result = _create_http_connection_impl(
-        connection_name=connection_name,
-        host=host,
-        bearer_token=api_key,
-        base_path=base_path,
-        comment=f'HTTP connection for {api_name}'
-      )
 
-      if not connection_result.get('success'):
-        return {
-          'success': False,
-          'error': f"Failed to create UC connection: {connection_result.get('error')}",
-          'step_failed': 'create_connection',
-        }
+      # Check if connection already exists
+      connection_exists = False
+      try:
+        existing_conn = w.connections.get(connection_name)
+        if existing_conn:
+          connection_exists = True
+          print(f'✅ Connection already exists, reusing: {connection_name}')
+      except Exception:
+        connection_exists = False
+
+      # Only create if it doesn't exist
+      if not connection_exists:
+        print(f'🔐 Creating new UC HTTP connection: {connection_name}')
+        connection_result = _create_http_connection_impl(
+          connection_name=connection_name,
+          host=host,
+          bearer_token=api_key,
+          base_path=base_path,
+          comment=f'HTTP connection for {api_name}'
+        )
+
+        if not connection_result.get('success'):
+          return {
+            'success': False,
+            'error': f"Failed to create UC connection: {connection_result.get('error')}",
+            'step_failed': 'create_connection',
+          }
 
       # Step 3: Register API in registry
       print(f'📝 Registering API in registry...')
