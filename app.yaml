@@ -2,12 +2,22 @@ command: ["python", "-m", "server.app"]
 
 source_code_path: "."
 
-# Configure on-behalf-of user authorization
-# This allows the app to act with the identity of the authenticated user
+# Configure service principal scopes (for app's service principal)
 scopes:
   - "all-apis"     # Required for model serving endpoints / Foundation Models
   - "sql"          # SQL warehouses and query execution
   - "files.files"  # DBFS files and directories
+
+# Configure user authorization scopes (for on-behalf-of user calls)
+# Users must grant these permissions when they first use the app
+user_authorization:
+  scopes:
+    - scope: "all-apis"
+      description: "Access foundation models and serving endpoints on your behalf"
+    - scope: "sql"
+      description: "Execute SQL queries on your behalf"
+    - scope: "catalog"
+      description: "Access Unity Catalog resources including HTTP Connections"
 
 environment:
   - name: DATABRICKS_HOST
