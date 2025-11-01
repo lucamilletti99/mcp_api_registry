@@ -288,8 +288,8 @@ def load_tools(mcp_server):
   # Unity Catalog HTTP Connection Tools
   # ========================================
 
-  @mcp_server.tool
-  def create_http_connection(
+  # Private helper function (not an MCP tool)
+  def _create_http_connection_impl(
     connection_name: str,
     host: str,
     bearer_token: str = None,
@@ -301,25 +301,10 @@ def load_tools(mcp_server):
     token_endpoint: str = None,
     comment: str = None
   ) -> dict:
-    """Create a Unity Catalog HTTP connection with secure credential storage.
+    """Internal implementation for creating UC HTTP connections.
 
-    This creates a managed HTTP connection in Unity Catalog that securely stores
-    credentials (bearer tokens or OAuth credentials) and can be shared across users.
-
-    Args:
-        connection_name: Unique name for the connection
-        host: Hostname of the API (e.g., 'www.alphavantage.co')
-        bearer_token: Bearer token for token-based auth (optional)
-        base_path: Base path to prepend to all requests (optional, e.g., '/query')
-        port: Port number (default: 443)
-        client_id: OAuth client ID (for OAuth auth)
-        client_secret: OAuth client secret (for OAuth auth)
-        oauth_scope: OAuth scope (for OAuth auth)
-        token_endpoint: OAuth token endpoint (for OAuth auth)
-        comment: Description of the connection (optional)
-
-    Returns:
-        Dictionary with connection creation results
+    This is a private helper that can be called from other functions.
+    Use create_http_connection() for the MCP tool version.
     """
     try:
       w = get_workspace_client()
@@ -375,6 +360,52 @@ def load_tools(mcp_server):
     except Exception as e:
       print(f'❌ Error creating HTTP connection: {str(e)}')
       return {'success': False, 'error': f'Error: {str(e)}'}
+
+  @mcp_server.tool
+  def create_http_connection(
+    connection_name: str,
+    host: str,
+    bearer_token: str = None,
+    base_path: str = "",
+    port: int = 443,
+    client_id: str = None,
+    client_secret: str = None,
+    oauth_scope: str = None,
+    token_endpoint: str = None,
+    comment: str = None
+  ) -> dict:
+    """Create a Unity Catalog HTTP connection with secure credential storage.
+
+    This creates a managed HTTP connection in Unity Catalog that securely stores
+    credentials (bearer tokens or OAuth credentials) and can be shared across users.
+
+    Args:
+        connection_name: Unique name for the connection
+        host: Hostname of the API (e.g., 'www.alphavantage.co')
+        bearer_token: Bearer token for token-based auth (optional)
+        base_path: Base path to prepend to all requests (optional, e.g., '/query')
+        port: Port number (default: 443)
+        client_id: OAuth client ID (for OAuth auth)
+        client_secret: OAuth client secret (for OAuth auth)
+        oauth_scope: OAuth scope (for OAuth auth)
+        token_endpoint: OAuth token endpoint (for OAuth auth)
+        comment: Description of the connection (optional)
+
+    Returns:
+        Dictionary with connection creation results
+    """
+    return _create_http_connection_impl(
+      connection_name=connection_name,
+      host=host,
+      bearer_token=bearer_token,
+      base_path=base_path,
+      port=port,
+      client_id=client_id,
+      client_secret=client_secret,
+      oauth_scope=oauth_scope,
+      token_endpoint=token_endpoint,
+      comment=comment
+    )
 
   @mcp_server.tool
   def list_http_connections() -> dict:
@@ -470,6 +501,20 @@ def load_tools(mcp_server):
         'error': f'Error: {str(e)}',
       }
 
+  # Private helper for deleting connections
+  def _delete_http_connection_impl(connection_name: str) -> dict:
+    """Internal implementation for deleting UC HTTP connections."""
+    try:
+      w = get_workspace_client()
+      w.connections.delete(connection_name)
+      return {
+        'success': True,
+        'message': f'✅ Successfully deleted HTTP connection: {connection_name}',
+      }
+    except Exception as e:
+      print(f'❌ Error deleting HTTP connection: {str(e)}')
+      return {'success': False, 'error': f'Error: {str(e)}'}
+
   @mcp_server.tool
   def delete_http_connection(connection_name: str) -> dict:
     """Delete a Unity Catalog HTTP connection.
@@ -480,19 +525,7 @@ def load_tools(mcp_server):
     Returns:
         Dictionary with deletion results
     """
-    try:
-      w = get_workspace_client()
-
-      w.connections.delete(connection_name)
-
-      return {
-        'success': True,
-        'message': f'✅ Successfully deleted HTTP connection: {connection_name}',
-      }
-
-    except Exception as e:
-      print(f'❌ Error deleting HTTP connection: {str(e)}')
-      return {'success': False, 'error': f'Error: {str(e)}'}
+    return _delete_http_connection_impl(connection_name)
 
   # ========================================
   # API Registry Tools (using UC HTTP Connections)
@@ -1083,7 +1116,7 @@ VALUES (
       print(f'🔐 Creating UC HTTP connection: {connection_name}')
 
       w = get_workspace_client()
-      connection_result = create_http_connection(
+      connection_result = _create_http_connection_impl(
         connection_name=connection_name,
         host=host,
         bearer_token=api_key,
@@ -1122,7 +1155,7 @@ VALUES (
       if not registration_result.get('success'):
         # Cleanup: delete the connection if registration failed
         print(f'⚠️  Registration failed, cleaning up connection...')
-        delete_http_connection(connection_name)
+        _delete_http_connection_impl(connection_name)
         return {
           'success': False,
           'error': f"Failed to register API: {registration_result.get('error')}",
