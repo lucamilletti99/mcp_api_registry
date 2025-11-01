@@ -582,8 +582,8 @@ def load_tools(mcp_server):
 
     return result
 
-  @mcp_server.tool
-  def register_api_with_connection(
+  # Private helper for registering APIs
+  def _register_api_with_connection_impl(
     api_name: str,
     description: str,
     connection_name: str,
@@ -596,27 +596,7 @@ def load_tools(mcp_server):
     documentation_url: str = None,
     validate: bool = True
   ) -> dict:
-    """Register an API using an existing Unity Catalog HTTP connection.
-
-    This stores API metadata in the api_http_registry table. Credentials are
-    securely managed by the UC HTTP Connection, not stored in the table.
-
-    Args:
-        api_name: Unique name for the API
-        description: Description of what the API does
-        connection_name: Name of existing UC HTTP connection to use
-        api_path: Path to append to connection's base URL
-        warehouse_id: SQL warehouse ID for database operations
-        catalog: Catalog name (required)
-        schema: Schema name (required)
-        http_method: HTTP method (default: GET)
-        request_headers: JSON string of additional headers (optional)
-        documentation_url: URL to API documentation (optional)
-        validate: Whether to test the connection after registering (default: True)
-
-    Returns:
-        Dictionary with registration results
-    """
+    """Internal implementation for registering APIs with UC connections."""
     if not catalog or not schema:
       return {
         'success': False,
@@ -733,6 +713,55 @@ VALUES (
     except Exception as e:
       print(f'❌ Error registering API: {str(e)}')
       return {'success': False, 'error': f'Registration error: {str(e)}'}
+
+  @mcp_server.tool
+  def register_api_with_connection(
+    api_name: str,
+    description: str,
+    connection_name: str,
+    api_path: str,
+    warehouse_id: str,
+    catalog: str,
+    schema: str,
+    http_method: str = 'GET',
+    request_headers: str = '{}',
+    documentation_url: str = None,
+    validate: bool = True
+  ) -> dict:
+    """Register an API using an existing Unity Catalog HTTP connection.
+
+    This stores API metadata in the api_http_registry table. Credentials are
+    securely managed by the UC HTTP Connection, not stored in the table.
+
+    Args:
+        api_name: Unique name for the API
+        description: Description of what the API does
+        connection_name: Name of existing UC HTTP connection to use
+        api_path: Path to append to connection's base URL
+        warehouse_id: SQL warehouse ID for database operations
+        catalog: Catalog name (required)
+        schema: Schema name (required)
+        http_method: HTTP method (default: GET)
+        request_headers: JSON string of additional headers (optional)
+        documentation_url: URL to API documentation (optional)
+        validate: Whether to test the connection after registering (default: True)
+
+    Returns:
+        Dictionary with registration results
+    """
+    return _register_api_with_connection_impl(
+      api_name=api_name,
+      description=description,
+      connection_name=connection_name,
+      api_path=api_path,
+      warehouse_id=warehouse_id,
+      catalog=catalog,
+      schema=schema,
+      http_method=http_method,
+      request_headers=request_headers,
+      documentation_url=documentation_url,
+      validate=validate
+    )
 
   @mcp_server.tool
   def call_registered_api(
@@ -1140,7 +1169,7 @@ VALUES (
       if base_path and path.startswith(base_path):
         api_path = path[len(base_path):]
 
-      registration_result = register_api_with_connection(
+      registration_result = _register_api_with_connection_impl(
         api_name=api_name,
         description=description,
         connection_name=connection_name,
