@@ -363,45 +363,47 @@ export function TracesPage({ initialTraceId }: TracesPageProps = {}) {
                 {traces.length} trace{traces.length !== 1 ? 's' : ''} found
               </p>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {traces.map((trace) => (
-                  <div
-                    key={trace.trace_id}
-                    className={`p-4 rounded-lg cursor-pointer transition-all border ${
-                      isDark
-                        ? 'bg-white/5 hover:bg-white/10 border-white/10'
-                        : 'bg-gray-50 hover:bg-gray-100 border-gray-200'
-                    }`}
-                    onClick={() => loadTraceDetail(trace.trace_id)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`text-xs font-mono ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                            {trace.trace_id.substring(0, 8)}
-                          </span>
-                          <Badge className={getStatusColor(trace.status)}>
-                            {trace.status}
-                          </Badge>
+            <CardContent className="p-0">
+              <ScrollArea className="h-[calc(100vh-250px)]">
+                <div className="space-y-3 p-6">
+                  {traces.map((trace) => (
+                    <div
+                      key={trace.trace_id}
+                      className={`p-4 rounded-lg cursor-pointer transition-all border ${
+                        isDark
+                          ? 'bg-white/5 hover:bg-white/10 border-white/10'
+                          : 'bg-gray-50 hover:bg-gray-100 border-gray-200'
+                      }`}
+                      onClick={() => loadTraceDetail(trace.trace_id)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className={`text-xs font-mono ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {trace.trace_id.substring(0, 8)}
+                            </span>
+                            <Badge className={getStatusColor(trace.status)}>
+                              {trace.status}
+                            </Badge>
+                          </div>
+                          <p className={`text-sm truncate ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                            {trace.request_metadata?.current_user_message || 'No message'}
+                          </p>
                         </div>
-                        <p className={`text-sm truncate ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                          {trace.request_metadata?.current_user_message || 'No message'}
-                        </p>
-                      </div>
-                      <div className="text-right ml-4">
-                        <div className={`flex items-center gap-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                          <Clock className="h-4 w-4" />
-                          {formatDuration(trace.execution_time_ms)}
+                        <div className="text-right ml-4">
+                          <div className={`flex items-center gap-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                            <Clock className="h-4 w-4" />
+                            {formatDuration(trace.execution_time_ms)}
+                          </div>
+                          <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                            {formatTime(trace.timestamp_ms)}
+                          </p>
                         </div>
-                        <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                          {formatTime(trace.timestamp_ms)}
-                        </p>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </ScrollArea>
             </CardContent>
           </Card>
         </div>

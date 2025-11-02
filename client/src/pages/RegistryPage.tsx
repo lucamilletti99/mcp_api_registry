@@ -15,13 +15,15 @@ interface RegisteredAPI {
   api_id: string;
   api_name: string;
   description: string;
-  api_endpoint: string;
+  connection_name: string;      // UC HTTP Connection name
+  api_path: string;              // Path to append to connection
   documentation_url?: string;
   http_method: string;
-  auth_type: string;
   status: string;
-  last_validated?: string;
+  validation_message?: string;
+  user_who_requested?: string;
   created_at?: string;
+  modified_date?: string;
 }
 
 interface RegistryPageProps {
@@ -115,7 +117,8 @@ export function RegistryPage({ selectedWarehouse, selectedCatalogSchema }: Regis
         warehouse_id: selectedWarehouse,
         api_name: editForm.api_name || '',
         description: editForm.description || '',
-        api_endpoint: editForm.api_endpoint || '',
+        connection_name: editForm.connection_name || '',
+        api_path: editForm.api_path || '',
       });
 
       // Add documentation_url if provided
@@ -179,12 +182,12 @@ export function RegistryPage({ selectedWarehouse, selectedCatalogSchema }: Regis
     try {
       setTestingId(api.api_id);
 
-      // Call the API endpoint to test health
+      // Call the API endpoint to test health using UC connection
       const response = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', content: `Test the health of the API at ${api.api_endpoint}` }],
+          messages: [{ role: 'user', content: `Test the UC HTTP connection "${api.connection_name}" with path "${api.api_path}"` }],
           model: 'databricks-claude-sonnet-4',
         }),
       });
@@ -194,7 +197,7 @@ export function RegistryPage({ selectedWarehouse, selectedCatalogSchema }: Regis
       // Update status
       setApis(apis.map(a =>
         a.api_id === api.api_id
-          ? { ...a, status: 'valid', last_validated: new Date().toISOString() }
+          ? { ...a, status: 'valid', modified_date: new Date().toISOString() }
           : a
       ));
     } catch (error) {
@@ -412,16 +415,16 @@ export function RegistryPage({ selectedWarehouse, selectedCatalogSchema }: Regis
 
                         <div className={`text-xs space-y-2 ${isDark ? 'text-white/80' : 'text-gray-700'}`}>
                           <div>
-                            <span className="font-medium">Endpoint:</span>
-                            <a
-                              href={api.api_endpoint}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-start gap-1 hover:underline mt-1 group"
-                            >
-                              <span className="break-all">{api.api_endpoint}</span>
-                              <ExternalLink className="h-3 w-3 flex-shrink-0 mt-0.5 opacity-60 group-hover:opacity-100" />
-                            </a>
+                            <span className="font-medium">Connection:</span>
+                            <div className="mt-1 font-mono text-xs bg-black/20 px-2 py-1 rounded">
+                              {api.connection_name}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="font-medium">Path:</span>
+                            <div className="mt-1 font-mono text-xs bg-black/20 px-2 py-1 rounded break-all">
+                              {api.api_path}
+                            </div>
                           </div>
                           {api.documentation_url && (
                             <div>
@@ -440,17 +443,19 @@ export function RegistryPage({ selectedWarehouse, selectedCatalogSchema }: Regis
                           <div>
                             <span className="font-medium">Method:</span> {api.http_method}
                           </div>
-                          <div>
-                            <span className="font-medium">Auth:</span> {api.auth_type}
-                          </div>
+                          {api.user_who_requested && (
+                            <div className={isDark ? 'text-white/60' : 'text-gray-500'}>
+                              <span className="font-medium">Requested by:</span> {api.user_who_requested}
+                            </div>
+                          )}
                           {api.created_at && (
                             <div className={isDark ? 'text-white/40' : 'text-gray-400'}>
                               Created: {new Date(api.created_at).toLocaleDateString()}
                             </div>
                           )}
-                          {api.last_validated && (
+                          {api.modified_date && (
                             <div className={isDark ? 'text-white/40' : 'text-gray-400'}>
-                              Last validated: {new Date(api.last_validated).toLocaleDateString()}
+                              Last modified: {new Date(api.modified_date).toLocaleDateString()}
                             </div>
                           )}
                         </div>
