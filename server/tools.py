@@ -1126,18 +1126,45 @@ VALUES (
       print(f'🚀 Smart registration starting for: {api_name}')
 
       # Step 1: Parse endpoint URL
+      from urllib.parse import parse_qs, urlencode
+
       parsed = urlparse(endpoint_url)
       # UC HTTP connections need full URL with protocol (e.g., https://api.example.com)
       host = f'{parsed.scheme}://{parsed.netloc}'
 
-      # Build path (path + query string)
+      # Parse query string to extract and remove sensitive parameters
+      query_params = parse_qs(parsed.query) if parsed.query else {}
+
+      # Extract API key from query params (if present) to use as bearer token
+      api_key_from_url = None
+      sensitive_param_names = ['api_key', 'apikey', 'key', 'token', 'access_token']
+
+      for param_name in sensitive_param_names:
+        if param_name in query_params:
+          api_key_from_url = query_params[param_name][0]
+          # Remove the sensitive parameter from query params
+          del query_params[param_name]
+          print(f'🔑 Extracted API key from URL parameter: {param_name}')
+          break
+
+      # Use extracted key if no explicit api_key was provided
+      if not api_key and api_key_from_url:
+        api_key = api_key_from_url
+        print(f'🔐 Using extracted API key for UC connection')
+
+      # Rebuild query string without sensitive parameters
+      clean_query = urlencode(query_params, doseq=True) if query_params else ''
+
+      # Build path (path + cleaned query string)
       path = parsed.path
-      if parsed.query:
-        path = f'{path}?{parsed.query}'
+      if clean_query:
+        path = f'{path}?{clean_query}'
 
       base_path = parsed.path.rsplit('/', 1)[0] if '/' in parsed.path else ''
 
       print(f'📍 Parsed endpoint - Host: {host}, Path: {path}, Base path: {base_path}')
+      if api_key_from_url:
+        print(f'🔒 API key removed from path and stored securely in UC connection')
 
       # Step 2: Create UC HTTP Connection (or reuse existing)
       connection_name = f'{api_name.lower().replace(" ", "_")}_connection'

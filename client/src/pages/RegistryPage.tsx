@@ -31,6 +31,28 @@ interface RegistryPageProps {
   selectedCatalogSchema: string;
 }
 
+// Helper function to redact sensitive query parameters for display
+const redactSensitiveParams = (path: string): string => {
+  if (!path) return '';
+
+  const sensitiveParams = ['api_key', 'apikey', 'token', 'access_token', 'secret', 'password', 'key'];
+  let redactedPath = path;
+
+  sensitiveParams.forEach(param => {
+    // Match parameter in query string with any value
+    const patterns = [
+      new RegExp(`([?&])${param}=([^&]+)`, 'gi'),
+      new RegExp(`([?&])${param}%3D([^&]+)`, 'gi'), // URL encoded =
+    ];
+
+    patterns.forEach(pattern => {
+      redactedPath = redactedPath.replace(pattern, `$1${param}=[REDACTED]`);
+    });
+  });
+
+  return redactedPath;
+};
+
 export function RegistryPage({ selectedWarehouse, selectedCatalogSchema }: RegistryPageProps) {
   const [apis, setApis] = useState<RegisteredAPI[]>([]);
   const [loading, setLoading] = useState(false);
@@ -423,8 +445,13 @@ export function RegistryPage({ selectedWarehouse, selectedCatalogSchema }: Regis
                           <div>
                             <span className="font-medium">Path:</span>
                             <div className="mt-1 font-mono text-xs bg-black/20 px-2 py-1 rounded break-all">
-                              {api.api_path}
+                              {redactSensitiveParams(api.api_path)}
                             </div>
+                            {api.api_path !== redactSensitiveParams(api.api_path) && (
+                              <p className="text-xs text-orange-400 mt-1">
+                                ⚠️ Sensitive parameters redacted for security
+                              </p>
+                            )}
                           </div>
                           {api.documentation_url && (
                             <div>
