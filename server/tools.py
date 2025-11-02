@@ -594,9 +594,16 @@ def load_tools(mcp_server):
     http_method: str = 'GET',
     request_headers: str = '{}',
     documentation_url: str = None,
+    parameters: str = None,
     validate: bool = True
   ) -> dict:
-    """Internal implementation for registering APIs with UC connections."""
+    """Internal implementation for registering APIs with UC connections.
+
+    Args:
+        parameters: JSON string defining API parameters, e.g.:
+            {"query_params": [{"name": "series_id", "type": "string", "required": true,
+                               "description": "Series ID", "examples": ["GDPC1"]}]}
+    """
     if not catalog or not schema:
       return {
         'success': False,
@@ -667,7 +674,7 @@ def load_tools(mcp_server):
       insert_query = f"""
 INSERT INTO {table_name}
 (api_id, api_name, description, connection_name, api_path,
- http_method, request_headers, documentation_url,
+ http_method, request_headers, documentation_url, parameters,
  status, validation_message, user_who_requested, created_at, modified_date)
 VALUES (
   '{api_id}',
@@ -678,6 +685,7 @@ VALUES (
   '{escape_sql_string(http_method.upper())}',
   '{escape_sql_string(request_headers)}',
   {f"'{escape_sql_string(documentation_url)}'" if documentation_url else 'NULL'},
+  {f"'{escape_sql_string(parameters)}'" if parameters else 'NULL'},
   '{escape_sql_string(status)}',
   '{escape_sql_string(validation_message)}',
   '{escape_sql_string(username)}',
@@ -726,6 +734,7 @@ VALUES (
     http_method: str = 'GET',
     request_headers: str = '{}',
     documentation_url: str = None,
+    parameters: str = None,
     validate: bool = True
   ) -> dict:
     """Register an API using an existing Unity Catalog HTTP connection.
@@ -737,13 +746,16 @@ VALUES (
         api_name: Unique name for the API
         description: Description of what the API does
         connection_name: Name of existing UC HTTP connection to use
-        api_path: Path to append to connection's base URL
+        api_path: Base path to append to connection's base URL (without dynamic params)
         warehouse_id: SQL warehouse ID for database operations
         catalog: Catalog name (required)
         schema: Schema name (required)
         http_method: HTTP method (default: GET)
         request_headers: JSON string of additional headers (optional)
         documentation_url: URL to API documentation (optional)
+        parameters: JSON string defining dynamic parameters (optional), e.g.:
+            '{"query_params": [{"name": "series_id", "type": "string", "required": true,
+                                "description": "FRED series ID", "examples": ["GDPC1", "UNRATE"]}]}'
         validate: Whether to test the connection after registering (default: True)
 
     Returns:
@@ -760,6 +772,7 @@ VALUES (
       http_method=http_method,
       request_headers=request_headers,
       documentation_url=documentation_url,
+      parameters=parameters,
       validate=validate
     )
 
@@ -864,6 +877,148 @@ VALUES (
 
     except Exception as e:
       print(f'❌ Error calling registered API: {str(e)}')
+      return {'success': False, 'error': f'Error: {str(e)}'}
+
+  @mcp_server.tool
+  def call_parameterized_api(
+    api_id: str,
+    warehouse_id: str,
+    catalog: str,
+    schema: str,
+    params: str = None
+  ) -> dict:
+    """Call a parameterized API with dynamic parameters.
+
+    This retrieves the API from the registry, reads its parameter definitions,
+    and makes a request with the provided parameter values.
+
+    Args:
+        api_id: ID of the registered API to call
+        warehouse_id: SQL warehouse ID to query registry
+        catalog: Catalog name (required)
+        schema: Schema name (required)
+        params: JSON string of parameter values, e.g.: '{"series_id": "GDPC1", "frequency": "q"}'
+
+    Returns:
+        Dictionary with API response
+    """
+    if not catalog or not schema:
+      return {
+        'success': False,
+        'error': 'catalog and schema parameters are required',
+      }
+
+    try:
+      import json
+
+      # Get API metadata from registry (including parameter definitions)
+      table_name = f'{catalog}.{schema}.api_http_registry'
+      query = f"""
+        SELECT api_name, connection_name, api_path, http_method, parameters
+        FROM {table_name}
+        WHERE api_id = '{api_id}'
+      """
+
+      result = _execute_sql_query(query, warehouse_id, catalog=None, schema=None, limit=1)
+
+      if not result.get('success') or not result.get('data', {}).get('rows'):
+        return {
+          'success': False,
+          'error': f'API with id "{api_id}" not found in registry',
+        }
+
+      # Get API details
+      api_row = result['data']['rows'][0]
+      connection_name = api_row.get('connection_name')
+      api_path = api_row.get('api_path', '')
+      http_method = api_row.get('http_method', 'GET')
+      parameters_json = api_row.get('parameters')
+
+      # Parse provided parameters
+      provided_params = {}
+      if params:
+        try:
+          provided_params = json.loads(params)
+        except json.JSONDecodeError:
+          return {
+            'success': False,
+            'error': f'Invalid params JSON: {params}',
+          }
+
+      # Parse parameter definitions
+      param_defs = {}
+      if parameters_json:
+        try:
+          param_config = json.loads(parameters_json)
+          query_params_defs = param_config.get('query_params', [])
+          param_defs = {p['name']: p for p in query_params_defs}
+        except json.JSONDecodeError:
+          print(f'⚠️  Warning: Could not parse parameter definitions')
+
+      # Validate required parameters
+      missing_required = []
+      for param_name, param_def in param_defs.items():
+        if param_def.get('required') and param_name not in provided_params:
+          missing_required.append(param_name)
+
+      if missing_required:
+        return {
+          'success': False,
+          'error': f'Missing required parameters: {", ".join(missing_required)}',
+          'parameter_definitions': param_defs,
+        }
+
+      # Build query string from provided parameters
+      from urllib.parse import urlencode
+      query_string = urlencode(provided_params) if provided_params else ''
+
+      # Build full path
+      full_path = api_path
+      if query_string:
+        separator = '&' if '?' in full_path else '?'
+        full_path = f'{full_path}{separator}{query_string}'
+
+      # Make request using UC HTTP connection
+      w = get_workspace_client()
+
+      method_map = {
+        'GET': ExternalFunctionRequestHttpMethod.GET,
+        'POST': ExternalFunctionRequestHttpMethod.POST,
+        'PUT': ExternalFunctionRequestHttpMethod.PUT,
+        'DELETE': ExternalFunctionRequestHttpMethod.DELETE,
+        'PATCH': ExternalFunctionRequestHttpMethod.PATCH,
+      }
+      method_enum = method_map.get(http_method.upper(), ExternalFunctionRequestHttpMethod.GET)
+
+      print(f'🌐 Calling parameterized API via UC connection: {connection_name}')
+      print(f'   Path: {full_path}')
+      print(f'   Parameters: {provided_params}')
+
+      response = w.serving_endpoints.http_request(
+        conn=connection_name,
+        method=method_enum,
+        path=full_path,
+      )
+
+      # Parse response
+      response_data = None
+      if hasattr(response, 'json') and response.json:
+        response_data = response.json
+      elif hasattr(response, 'text'):
+        response_data = response.text
+
+      return {
+        'success': True,
+        'api_id': api_id,
+        'api_name': api_row.get('api_name'),
+        'connection_name': connection_name,
+        'parameters_used': provided_params,
+        'response': response_data,
+        'message': '✅ Parameterized API call successful',
+      }
+
+    except Exception as e:
+      print(f'❌ Error calling parameterized API: {str(e)}')
       return {'success': False, 'error': f'Error: {str(e)}'}
 
   # ========================================
@@ -1219,6 +1374,7 @@ VALUES (
         schema=schema,
         http_method=http_method,
         documentation_url=documentation_url,
+        parameters=None,  # TODO: Auto-detect parameters from documentation
         validate=False  # Disable validation - requires working API key
       )
 

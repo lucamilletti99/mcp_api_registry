@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS {catalog}.{schema}.api_http_registry (
   request_headers STRING COMMENT 'JSON string of additional headers to send',
   documentation_url STRING,
 
+  -- Parameter definitions for dynamic API calls
+  parameters STRING COMMENT 'JSON string defining available parameters: {"query_params": [{"name": "series_id", "type": "string", "required": true, "description": "Series identifier", "examples": ["GDPC1", "UNRATE"]}]}',
+
   -- Status tracking
   status STRING,
   validation_message STRING,

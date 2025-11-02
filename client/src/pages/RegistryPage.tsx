@@ -19,6 +19,7 @@ interface RegisteredAPI {
   api_path: string;              // Path to append to connection
   documentation_url?: string;
   http_method: string;
+  parameters?: string;           // JSON string of parameter definitions
   status: string;
   validation_message?: string;
   user_who_requested?: string;
@@ -470,6 +471,37 @@ export function RegistryPage({ selectedWarehouse, selectedCatalogSchema }: Regis
                           <div>
                             <span className="font-medium">Method:</span> {api.http_method}
                           </div>
+                          {api.parameters && (() => {
+                            try {
+                              const paramConfig = JSON.parse(api.parameters);
+                              const queryParams = paramConfig.query_params || [];
+                              if (queryParams.length > 0) {
+                                return (
+                                  <div>
+                                    <span className="font-medium">Parameters:</span>
+                                    <div className="mt-1 space-y-1">
+                                      {queryParams.map((param: any, idx: number) => (
+                                        <div key={idx} className={`text-xs ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
+                                          <span className="font-mono">{param.name}</span>
+                                          {param.required && <span className="text-red-400 ml-1">*</span>}
+                                          {param.type && <span className={isDark ? 'text-white/50' : 'text-gray-400'}> ({param.type})</span>}
+                                          {param.description && <span className="ml-2">- {param.description}</span>}
+                                          {param.examples && param.examples.length > 0 && (
+                                            <div className={`ml-4 ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
+                                              Examples: {param.examples.join(', ')}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                            } catch (e) {
+                              return null;
+                            }
+                            return null;
+                          })()}
                           {api.user_who_requested && (
                             <div className={isDark ? 'text-white/60' : 'text-gray-500'}>
                               <span className="font-medium">Requested by:</span> {api.user_who_requested}
