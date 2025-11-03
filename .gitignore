@@ -287,6 +287,7 @@ Thumbs.db
 # Application specific
 mlruns/
 mlartifacts/
+personal_resources/
 
 # Databricks
 .databricks/
