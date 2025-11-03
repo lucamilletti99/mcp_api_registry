@@ -1,728 +1,317 @@
-# API Registry Workflow with Unity Catalog HTTP Connections
+# API Registry Workflow
 
-This workflow guides you through discovering, registering, and using external API endpoints with the MCP server using **Unity Catalog HTTP Connections** for secure credential management.
+## 🚨 MANDATORY WORKFLOW FOR EVERY REQUEST 🚨
 
-## Architecture Overview
+**You have ONE job: Check registry → Call API → Done**
 
-**IMPORTANT:** This system uses Unity Catalog HTTP Connections for secure credential storage:
-
-1. **Credentials stored in UC HTTP Connections** - API keys, bearer tokens, and other secrets are stored securely in Unity Catalog, NOT in Delta tables
-2. **API metadata in api_http_registry table** - Only non-sensitive metadata (API name, description, connection reference, path) stored in Delta
-3. **Connection references** - Each API entry references a UC HTTP Connection by name (e.g., `sec_api_connection`)
-4. **Secure and compliant** - Unity Catalog manages access control, audit logging, and credential encryption
-
-**Data Flow:**
-```
-User provides: API endpoint URL + API key
-         ↓
-System creates: UC HTTP Connection (stores host + credentials)
-         ↓
-System registers: API metadata (references connection by name)
-         ↓
-User calls API: System retrieves connection + appends path
-```
-
-## Quick Start (RECOMMENDED)
-
-**🚀 Use `smart_register_with_connection` for one-step registration!**
-
-This tool combines discovery, UC HTTP Connection creation, and API metadata registration into a single step:
-
-```
-smart_register_with_connection(
-  api_name="sec_api",
-  description="SEC API for financial filings",
-  endpoint_url="https://api.sec-api.io/v1/filings",
-  warehouse_id="<get from UI context>",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  api_key="your-api-key-here",  # Optional but recommended
-  documentation_url="https://sec-api.io/docs"  # Optional
-)
-```
-
-The tool automatically:
-- **Parses the endpoint URL** into base host + path
-- **Creates a UC HTTP Connection** (stores `https://api.sec-api.io` + Bearer token securely)
-- **Fetches documentation** if URL provided
-- **Tries common endpoint patterns** (/api, /v1, /search, /data, /query, etc.)
-- **Tests multiple authentication methods** (Bearer header, API key header, query params)
-- **Discovers the best working configuration**
-- **Registers in the api_http_registry table** with connection reference
-- **Validates the endpoint**
-
-**This reduces the workflow from 5+ steps to just 1 step!**
-
-**What gets created:**
-- UC HTTP Connection: `sec_api_connection`
-  - Host: `https://api.sec-api.io`
-  - Port: `443`
-  - Bearer token: `your-api-key-here` (encrypted in Unity Catalog)
-
-- Registry entry in `api_http_registry` table:
-  - `api_name`: "sec_api"
-  - `connection_name`: "sec_api_connection"
-  - `api_path`: "/v1/filings"
-  - `documentation_url`: "https://sec-api.io/docs"
-  - `user_who_requested`: "luca.milletti@databricks.com"
-
-## Unity Catalog HTTP Connection Tools
-
-### `create_http_connection`
-Create a Unity Catalog HTTP Connection with secure credential storage.
-
-```
-create_http_connection(
-  connection_name="alphavantage_connection",
-  host="https://www.alphavantage.co",
-  bearer_token="your-api-key-here",  # Optional
-  port=443  # Default
-)
-```
-
-**Parameters:**
-- `connection_name` (required): Unique name for the connection
-- `host` (required): Base URL of the API (e.g., "https://api.example.com")
-- `bearer_token` (optional): Bearer token for authentication
-- `port` (optional): Port number (default: 443)
-
-**Returns:** Connection details with UC connection name
-
-**When to use:** When you already know the API structure and want to manually create the UC connection before registering API metadata.
-
-### `register_api_with_connection`
-Register API metadata that references an existing UC HTTP Connection.
-
-```
-register_api_with_connection(
-  api_name="alphavantage_stock",
-  description="Alpha Vantage stock market time series data",
-  connection_name="alphavantage_connection",
-  api_path="/query?function=TIME_SERIES_INTRADAY",
-  warehouse_id="your-warehouse-id",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  documentation_url="https://www.alphavantage.co/documentation"  # Optional
-)
-```
-
-**Parameters:**
-- `api_name` (required): Descriptive name for the API
-- `description` (required): What this API does
-- `connection_name` (required): Name of the UC HTTP Connection to use
-- `api_path` (optional): Path to append to connection base URL
-- `warehouse_id` (required): SQL warehouse ID for validation
-- `catalog` (required): Catalog name for api_http_registry table
-- `schema` (required): Schema name for api_http_registry table
-- `documentation_url` (optional): API documentation URL
-
-**Returns:** Registration confirmation with api_id
-
-**When to use:** When you've already created a UC HTTP Connection and want to register API metadata separately.
-
-### `list_http_connections`
-List available Unity Catalog HTTP Connections.
-
-```
-list_http_connections()
-```
-
-**Returns:** List of all HTTP connections with their names and details
-
-**When to use:** To see existing connections before registering a new API, or to verify a connection was created successfully.
-
-### `test_http_connection`
-Test if a UC HTTP Connection is working correctly.
-
-```
-test_http_connection(
-  connection_name="sec_api_connection",
-  test_path="/v1/status"  # Optional path to test
-)
-```
-
-**Parameters:**
-- `connection_name` (required): Name of the connection to test
-- `test_path` (optional): Path to append for testing (default: "/")
-
-**Returns:** Test result with status code and response preview
-
-**When to use:** To verify a connection is working before or after registration.
-
-### `delete_http_connection`
-Delete a Unity Catalog HTTP Connection.
-
-```
-delete_http_connection(
-  connection_name="old_api_connection"
-)
-```
-
-**Parameters:**
-- `connection_name` (required): Name of the connection to delete
-
-**Returns:** Deletion confirmation
-
-**When to use:** To clean up unused connections or remove connections with incorrect credentials.
-
-## Other Smart Helper Tools
-
-### `fetch_api_documentation`
-Automatically fetch and parse API documentation from URLs.
-
-```
-fetch_api_documentation(
-  documentation_url="https://sec-api.io/docs"
-)
-```
-
-**Returns:**
-- Extracted API URLs found in documentation
-- Common endpoint paths (/api, /v1, etc.)
-- Parameter names (apikey, token, etc.)
-- Code examples count
-- Content preview
-
-**When to use:** User provides a documentation link but you need to extract endpoint details before registration.
-
-### `try_common_api_patterns`
-Automatically test common API endpoint patterns with multiple auth methods.
-
-```
-try_common_api_patterns(
-  base_url="https://api.example.com",
-  api_key="your-api-key-here"  # Optional
-)
-```
-
-**Tests these patterns automatically:**
-- Base URL itself
-- `/api`, `/api/v1`, `/api/v2`
-- `/v1`, `/v2`
-- `/search`, `/query`, `/data`
-- `/status`, `/health`, `/docs`, `/swagger`
-
-**With these auth methods:**
-- No authentication
-- Bearer token header
-- X-API-Key header
-- apikey query parameter
-- api_key query parameter
-
-**Returns:** List of successful endpoints found with their auth methods.
-
-**When to use:** You have a base URL but don't know the exact endpoint path or auth method.
-
-### `discover_api_endpoint`
-Manually discover a specific API endpoint with authentication.
-
-```
-discover_api_endpoint(
-  endpoint_url="https://api.example.com/v1/data",
-  api_key="your-api-key-here",  # Optional
-  timeout=10  # Optional
-)
-```
-
-**Returns:** Discovery results including auth requirements, data capabilities, and next steps
-
-**When to use:** You want to analyze a specific endpoint before creating a UC connection.
+**NO EXCEPTIONS. NO IMPROVISING. FOLLOW THIS EXACTLY:**
 
 ---
 
-## Manual Workflow (Use only if smart tools fail)
+## For ANY request about data, APIs, or external services
 
-The manual API registry workflow consists of four main steps:
+**Examples that follow this workflow:**
+- "Show me exchange rates for Canada"
+- "Get stock prices for AAPL"
+- "Query the Treasury API"
+- "Call the weather API"
+- **ANY request for external data!**
 
-1. **Discover** - Analyze the API endpoint to understand authentication and data capabilities
-2. **Create UC Connection** - Store credentials securely in Unity Catalog
-3. **Register API Metadata** - Store API configuration in the api_http_registry table
-4. **Validate** - Confirm the API is working correctly
-5. **Use** - Execute SQL queries or retrieve data from the registered API
+---
 
-## Step 1: Discover API Endpoint
+## Step 1: CHECK THE REGISTRY (ALWAYS FIRST!)
 
-**When to use:** You have an API URL and need to understand how to authenticate and what data it provides.
+**YOU MUST DO THIS FIRST. NO TOOL CALLS BEFORE THIS.**
 
-### Tool: `discover_api_endpoint`
-
-**Parameters:**
-- `endpoint_url` (required): The full API URL to discover
-- `api_key` (optional): API key if you already know authentication is required
-- `timeout` (optional): Request timeout in seconds (default: 10)
-
-### Example: Discovering Alpha Vantage API
-
-```
-discover_api_endpoint(
-  endpoint_url="https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min&apikey=demo"
-)
-```
-
-**Expected Output:**
-```json
-{
-  "success": true,
-  "endpoint_url": "https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min&apikey=demo",
-  "status_code": 200,
-  "requires_auth": true,
-  "auth_detection": {
-    "detected": true,
-    "method": "URL parameter (apikey)",
-    "confidence": "high"
-  },
-  "data_capabilities": {
-    "detected_fields": ["Meta Data", "Time Series (5min)", "symbol", "interval"],
-    "structure": "object",
-    "summary": "API provides stock market time series data with meta information"
-  },
-  "next_steps": [
-    "API is functional with authentication",
-    "Create UC HTTP Connection with bearer_token",
-    "Register API metadata with connection reference"
-  ]
-}
-```
-
-## Step 2: Create Unity Catalog HTTP Connection
-
-**When to use:** After discovering an API, you want to store its credentials securely.
-
-### Tool: `create_http_connection`
-
-**Example: Creating Connection for Alpha Vantage**
-
-```
-create_http_connection(
-  connection_name="alphavantage_connection",
-  host="https://www.alphavantage.co",
-  bearer_token="your-actual-api-key-here",
-  port=443
-)
-```
-
-**Expected Output:**
-```json
-{
-  "success": true,
-  "connection_name": "alphavantage_connection",
-  "host": "https://www.alphavantage.co",
-  "port": 443,
-  "message": "HTTP connection created successfully in Unity Catalog"
-}
-```
-
-**What this does:**
-1. Creates a Unity Catalog HTTP Connection
-2. Stores the base host URL
-3. Encrypts and stores the bearer token securely
-4. Makes the connection available for API registrations
-
-## Step 3: Register API Metadata
-
-**When to use:** After creating a UC HTTP Connection, you want to register API metadata.
-
-### Tool: `register_api_with_connection`
-
-**Example: Registering Alpha Vantage API**
-
-```
-register_api_with_connection(
-  api_name="Alpha Vantage - IBM Stock 5min Intervals",
-  description="Stock market time series data for IBM with 5-minute intervals. Provides OHLC (Open, High, Low, Close) prices and trading volume.",
-  connection_name="alphavantage_connection",
-  api_path="/query?function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min",
-  warehouse_id="your-warehouse-id-here",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  documentation_url="https://www.alphavantage.co/documentation"
-)
-```
-
-**Expected Output:**
-```json
-{
-  "success": true,
-  "message": "API 'Alpha Vantage - IBM Stock 5min Intervals' registered successfully",
-  "api_id": "api-a1b2c3d4",
-  "status": "valid",
-  "registry_entry": {
-    "api_id": "api-a1b2c3d4",
-    "api_name": "Alpha Vantage - IBM Stock 5min Intervals",
-    "connection_name": "alphavantage_connection",
-    "api_path": "/query?function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min",
-    "user_who_requested": "luca.milletti@databricks.com",
-    "created_at": "2025-11-01T10:30:00"
-  }
-}
-```
-
-**What Registration Does:**
-1. Generates unique API ID (e.g., `api-a1b2c3d4`)
-2. Captures user context via on-behalf-of authentication
-3. Stores metadata in `api_http_registry` table
-4. References the UC HTTP Connection by name
-5. NO credentials stored in Delta table - only connection reference
-
-**Registry Fields:**
-- `api_id`: Auto-generated unique identifier
-- `api_name`: Human-readable name
-- `description`: What the API does
-- `connection_name`: Reference to UC HTTP Connection (stores credentials)
-- `api_path`: Path to append to connection base URL
-- `documentation_url`: API documentation link
-- `user_who_requested`: Your email (auto-captured)
-- `created_at`: Registration timestamp
-- `status`: "valid" or "pending"
-
-## Step 4: Validate Registered API
-
-**When to use:** You want to check if a registered API is still working correctly.
-
-### Tool: `test_http_connection`
-
-**Example: Testing a Registered Connection**
-
-```
-test_http_connection(
-  connection_name="alphavantage_connection",
-  test_path="/query?function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min"
-)
-```
-
-**Expected Output:**
-```json
-{
-  "success": true,
-  "status_code": 200,
-  "is_healthy": true,
-  "response_preview": "{\n  \"Meta Data\": {\n    \"1. Information\": \"Intraday (5min)...",
-  "message": "Connection test successful"
-}
-```
-
-## Step 5: Use Registered APIs
-
-**When to use:** Query the registry to find APIs or manage connections.
-
-### Tool: `check_api_http_registry`
-
-**Retrieve All Registered APIs:**
-```
+```python
 check_api_http_registry(
-  warehouse_id="your-warehouse-id",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  limit=100
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>",
+    limit=50
 )
 ```
 
-**Alternative: Use SQL directly:**
-```
+**Read the results:**
+- Found an API that matches? Write down its `api_path` and `connection_name`
+- If YES → Go to Step 2 IMMEDIATELY
+- If NO → Go to Step 3
+
+---
+
+## Step 2: CALL THE API (IF FOUND IN REGISTRY)
+
+**Use execute_dbsql with http_request() SQL**
+
+From Step 1, you got:
+- `connection_name` (e.g., "treasury_fx_rates_connection")
+- `api_path` (e.g., "/v1/accounting/od/rates_of_exchange")
+
+Now write a SQL query using these values (**Any queries passed to the query parameter should not include major whitespace and \n characters**)
+
+```python
 execute_dbsql(
-  warehouse_id="your-warehouse-id",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  query="SELECT * FROM api_http_registry ORDER BY created_at DESC"
+    query="""
+    SELECT http_request(conn => '<connection_name>', method => 'GET', path => '<api_path>',params => map( '<param1_name>', '<param1_value>','<param2_name>'. '<param2_value>'),headers => map('Accept', 'application/json')).text as response
+    """,
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>"
 )
 ```
 
-**Find APIs by Name:**
-```
-execute_dbsql(
-  warehouse_id="your-warehouse-id",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  query="SELECT * FROM api_http_registry WHERE api_name LIKE '%Alpha Vantage%'"
+**Then STOP. You're done. Return the response to the user.**
+
+**❌ DO NOT CALL ANY OTHER TOOLS:**
+- ❌ NO `register_api`
+- ❌ NO `discover_api_endpoint`
+- ❌ NO `test_http_connection`
+- ❌ NO `list_http_connections`
+- ❌ NO `call_parameterized_api`
+- ❌ NOTHING ELSE
+
+**Total tool calls: 2 (check_api_http_registry + execute_dbsql)**
+
+---
+
+## Step 3: API NOT FOUND → REGISTER IT (RARE)
+
+**Only do this if Step 1 found NO matching API.**
+
+### Registration Workflow:
+
+#### 3a. Fetch API Documentation FIRST
+
+**MANDATORY: Always fetch documentation before registering!**
+
+```python
+fetch_api_documentation(
+    documentation_url="<URL user provides or you find>"
 )
 ```
 
-**Get API Details by Connection:**
-```
-execute_dbsql(
-  warehouse_id="your-warehouse-id",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  query="SELECT * FROM api_http_registry WHERE connection_name = 'alphavantage_connection'"
+**Analyze the response to extract:**
+- Base URL structure (host + base_path + api_path split)
+- Authentication type (none, api_key, bearer_token)
+- Required/optional parameters
+- HTTP method (GET, POST, etc.)
+
+#### 3b. Register the API with extracted details
+
+```python
+register_api(
+    api_name="<descriptive_name>",
+    description="<what the API does>",
+    host="<just the domain, e.g., api.fiscaldata.treasury.gov>",
+    base_path="<common prefix for all endpoints, e.g., /services/api/fiscal_service>",
+    api_path="<specific endpoint, e.g., /v1/accounting/od/rates_of_exchange>",
+    auth_type="none",  # or "api_key" or "bearer_token"
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>",
+    secret_value="<API key or token if auth_type != 'none'>",
+    http_method="GET",
+    documentation_url="<the docs URL>",
+    parameters={
+        "query_params": [
+            {
+                "name": "filter",
+                "type": "string",
+                "required": False,
+                "description": "Filter expression",
+                "examples": ["country:in:(Canada,UK)"]
+            },
+            {
+                "name": "fields",
+                "type": "string",
+                "required": False,
+                "description": "Fields to return",
+                "examples": ["rate,date,country"]
+            }
+        ]
+    }
 )
 ```
 
-## Complete Workflow Example
+#### 3c. After registration, go back to Step 1
 
-**User Request:** "I want to use the Alpha Vantage API to get IBM stock data, my API key is ABC123"
+Now the API is in the registry! Next time someone asks, it will be found in Step 1.
 
-### Using Smart Registration (RECOMMENDED):
+---
 
-```
-User: "I want to use the Alpha Vantage API to get IBM stock data, my API key is ABC123"
+### 🎯 Registration Example
 
-Claude calls:
-smart_register_with_connection(
-  api_name="alphavantage_stock",
-  description="Real-time and historical stock data for IBM with 5-minute intervals",
-  endpoint_url="https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min",
-  warehouse_id="abc123warehouse",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  api_key="ABC123",
-  documentation_url="https://www.alphavantage.co/documentation"
+**User:** "Register the Treasury Fiscal Data API - https://fiscaldata.treasury.gov/api-documentation/"
+
+**YOU:**
+```python
+# Step 3a: Fetch documentation
+fetch_api_documentation(
+    documentation_url="https://fiscaldata.treasury.gov/api-documentation/"
 )
 
-Result:
-- UC HTTP Connection created: alphavantage_stock_connection
-- API registered in api_http_registry
-- Status: valid
-- Credentials securely stored in Unity Catalog
-```
+# Analyze response and extract:
+# - Base URL: https://api.fiscaldata.treasury.gov
+# - Base path: /services/api/fiscal_service (common to all endpoints)
+# - Endpoint: /v1/accounting/od/rates_of_exchange (specific endpoint)
+# - Auth: none (public API)
 
-### Using Manual Steps (if smart tool fails):
-
-**1. Discover the API:**
-```
-discover_api_endpoint(
-  endpoint_url="https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min&apikey=demo"
+# Step 3b: Register
+register_api(
+    api_name="treasury_rates_of_exchange",
+    description="U.S. Treasury exchange rates data",
+    host="api.fiscaldata.treasury.gov",
+    base_path="/services/api/fiscal_service",
+    api_path="/v1/accounting/od/rates_of_exchange",
+    auth_type="none",
+    warehouse_id="694340ce4f05d316",
+    catalog="luca_milletti",
+    schema="custom_mcp_server",
+    http_method="GET",
+    documentation_url="https://fiscaldata.treasury.gov/api-documentation/",
+    parameters={
+        "query_params": [
+            {"name": "filter", "type": "string", "required": False,
+             "description": "Filter by country, date, etc"},
+            {"name": "fields", "type": "string", "required": False,
+             "description": "Comma-separated fields to return"},
+            {"name": "page[size]", "type": "string", "required": False,
+             "description": "Number of records per page"}
+        ]
+    }
 )
 
-Result:
-- Requires authentication: Yes (Bearer token)
-- Data available: Stock time series with OHLC prices
-- Next step: Create UC HTTP Connection
+# Step 3c: Now it's registered! User can query it anytime.
 ```
 
-**2. Create UC HTTP Connection:**
-```
-create_http_connection(
-  connection_name="alphavantage_connection",
-  host="https://www.alphavantage.co",
-  bearer_token="ABC123",
-  port=443
-)
+**Most users will already have APIs registered. Registration happens once per API.**
 
-Result:
-- Connection created successfully
-- Credentials stored securely in Unity Catalog
-```
+---
 
-**3. Register API Metadata:**
-```
-register_api_with_connection(
-  api_name="Alpha Vantage - IBM Stock Data",
-  description="Real-time and historical stock data for IBM",
-  connection_name="alphavantage_connection",
-  api_path="/query?function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min",
-  warehouse_id="abc123warehouse",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  documentation_url="https://www.alphavantage.co/documentation"
-)
+## 📊 http_request() SQL Function
 
-Result:
-- API ID: api-a1b2c3d4
-- Status: valid
-- Successfully registered
+**The SQL you write calls Unity Catalog HTTP Connections:**
+
+```sql
+SELECT http_request(
+    conn => 'connection_name',  -- Full name from the check_registry call tha tshould return you the connection. name
+    method => 'GET',                            -- HTTP method
+    path => '/v1/endpoint/path',                -- API path
+    params => map('key1', 'value1', 'key2', 'value2'),  -- Query params
+    headers => map('Accept', 'application/json')        -- HTTP headers
+) as response
 ```
 
-**4. Validate the API:**
-```
-test_http_connection(
-  connection_name="alphavantage_connection",
-  test_path="/query?function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min"
-)
+**The connection_name links everything:**
+- Connection stores: host URL + auth credentials
+- You just provide: path + params
+- Databricks handles: authentication automatically
 
-Result:
-- Status: 200 OK
-- Healthy: Yes
-- Data returned with latest stock prices
-```
+**That's why you need connection_name from the registry!**
 
-**5. Use the Registered API:**
-```
-check_api_http_registry(
-  warehouse_id="abc123warehouse",
-  catalog="luca_milletti",
-  schema="custom_mcp_server"
-)
+---
 
-Result:
-- Shows all registered APIs
-- Includes the newly registered Alpha Vantage API
-```
+## 🎯 Examples
 
-## Common Patterns
-
-### Pattern 1: API with Bearer Token Authentication
-
-**Smart Registration:**
-```
-smart_register_with_connection(
-  api_name="example_api",
-  description="Data from example.com API",
-  endpoint_url="https://api.example.com/v1/data",
-  warehouse_id="your-warehouse-id",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  api_key="your-bearer-token-here"
-)
-```
-
-**Manual Registration:**
-```
-# Step 1: Create connection
-create_http_connection(
-  connection_name="example_connection",
-  host="https://api.example.com",
-  bearer_token="your-bearer-token-here"
-)
-
-# Step 2: Register metadata
-register_api_with_connection(
-  api_name="example_api",
-  description="Data from example.com API",
-  connection_name="example_connection",
-  api_path="/v1/data",
-  warehouse_id="your-warehouse-id",
-  catalog="luca_milletti",
-  schema="custom_mcp_server"
-)
-```
-
-### Pattern 2: Public API (No Authentication)
+### Example 1: User asks "Show me exchange rates for Canada"
+**Note that the query should escape \n and whitespaces**
 
 ```
-smart_register_with_connection(
-  api_name="public_data_api",
-  description="Public data endpoint with no authentication required",
-  endpoint_url="https://api.publicdata.com/v1/info",
-  warehouse_id="your-warehouse-id",
-  catalog="luca_milletti",
-  schema="custom_mcp_server"
-  # No api_key parameter - connection created without credentials
-)
+YOU:
+1. check_api_http_registry(
+     warehouse_id="694340ce4f05d316",
+     catalog="luca_milletti",
+     schema="custom_mcp_server"
+   )
+
+   Response shows:
+   - connection_name: "treasury_fx_rates_connection"
+   - api_path: "/v1/accounting/od/rates_of_exchange"
+
+2. execute_dbsql(
+     query="""
+     SELECT http_request(
+         conn => 'treasury_fx_rates_connection',
+         method => 'GET',
+         path => '/v1/accounting/od/rates_of_exchange',
+         params => map(
+             'filter', 'country_currency_desc:eq:Canada-Dollar',
+             'fields', 'country_currency_desc,exchange_rate,record_date'
+         ),
+         headers => map('Accept', 'application/json')
+     ).text as response
+     """,
+     warehouse_id="694340ce4f05d316",
+     catalog="luca_milletti",
+     schema="custom_mcp_server"
+   )
+
+3. DONE! Return response to user.
+
+Total tool calls: 2
 ```
 
-### Pattern 3: API with Documentation
-
+### Example 2: User asks "Get treasury data for UK from 2024"
+**Note that the query should escape \n and whitespaces**
 ```
-smart_register_with_connection(
-  api_name="sec_api",
-  description="SEC API for financial filings",
-  endpoint_url="https://api.sec-api.io/v1/filings",
-  warehouse_id="your-warehouse-id",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  api_key="your-sec-api-key",
-  documentation_url="https://sec-api.io/docs"
-)
+YOU:
+1. check_api_http_registry(...)
 
-# Later, discover more endpoints from the same API
-review_api_documentation_for_endpoints(
-  api_id="<api_id from registry>",
-  warehouse_id="your-warehouse-id",
-  catalog="luca_milletti",
-  schema="custom_mcp_server",
-  api_key="your-sec-api-key"
-)
-```
+   Response shows:
+   - connection_name: "treasury_fx_rates_connection"
+   - api_path: "/v1/accounting/od/rates_of_exchange"
 
-## Troubleshooting
+2. execute_dbsql(
+     query="""
+     SELECT http_request(
+         conn => 'treasury_fx_rates_connection',
+         method => 'GET',
+         path => '/v1/accounting/od/rates_of_exchange',
+         params => map(
+             'filter', 'country_currency_desc:in:(United Kingdom-Pound),record_date:gte:2024-01-01',
+             'fields', 'country_currency_desc,exchange_rate,record_date',
+             'page[size]', '50'
+         ),
+         headers => map('Accept', 'application/json')
+     ).text as response
+     """,
+     warehouse_id="694340ce4f05d316",
+     catalog="luca_milletti",
+     schema="custom_mcp_server"
+   )
 
-### Issue: "Connection already exists with this name"
+3. DONE! Return response to user.
 
-**Solution:** Either use a different connection name or delete the existing connection:
-```
-delete_http_connection(connection_name="old_connection")
-```
-
-### Issue: "Cannot find connection"
-
-**Solution:** List available connections to verify the name:
-```
-list_http_connections()
+Total tool calls: 2
 ```
 
-### Issue: "Connection test failed with status 401"
+---
 
-**Possible causes:**
-1. Wrong bearer token
-2. Invalid or expired API key
-3. Token format incorrect
+## Architecture (For Reference Only)
 
-**Solution:** Delete and recreate the connection with correct credentials:
-```
-delete_http_connection(connection_name="failing_connection")
-create_http_connection(
-  connection_name="new_connection",
-  host="https://api.example.com",
-  bearer_token="correct-token-here"
-)
-```
+**How it all connects:**
 
-### Issue: "Connection test failed with status 404"
+1. **Unity Catalog HTTP Connection** (e.g., `treasury_fx_rates_connection`)
+   - Stores: host URL (`https://api.fiscaldata.treasury.gov`)
+   - Stores: base_path (`/services/api/fiscal_service`)
+   - Stores: auth credentials (if needed)
 
-**Possible causes:**
-1. Incorrect api_path
-2. API endpoint changed
-3. Host URL incorrect
+2. **api_http_registry table** (Delta table)
+   - Stores: connection_name (`treasury_fx_rates_connection`)
+   - Stores: api_path (`/v1/accounting/od/rates_of_exchange`)
+   - Stores: parameters, description, etc.
 
-**Solution:** Verify the full URL structure and update the api_path in the registry
+3. **You write SQL:**
+   ```sql
+   SELECT http_request(
+       conn => 'treasury_fx_rates_connection',
+       path => '/v1/accounting/od/rates_of_exchange',
+       params => map(...)
+   )
+   ```
 
-### Issue: "Timeout error"
+4. **Databricks combines:**
+   - Connection host + base_path + your path = Full URL
+   - Connection auth + your params = Authenticated request
 
-**Solution:** Increase timeout parameter:
-```
-test_http_connection(
-  connection_name="slow_api",
-  test_path="/v1/data",
-  timeout=30  # Increase from default
-)
-```
-
-### Issue: "Cannot find warehouse_id"
-
-**Solution:** List available warehouses:
-```
-list_warehouses()
-```
-
-## Best Practices
-
-1. **Always use smart_register_with_connection** - Reduces workflow from 5+ steps to 1 step
-2. **Use descriptive connection names** - Include API name and purpose (e.g., `sec_api_production_connection`)
-3. **Include documentation_url** - Enables endpoint discovery later
-4. **Test after registration** - Use `test_http_connection` to verify it works
-5. **Never expose credentials** - Credentials are encrypted in Unity Catalog, never in Delta tables
-6. **Use catalog/schema parameters** - Always specify catalog and schema for multi-tenancy
-7. **Clean up unused connections** - Use `delete_http_connection` to remove old connections
-8. **Query the registry** - Use SQL to find and manage your registered APIs
-9. **Monitor connection health** - Periodically test connections to detect issues
-10. **Document your APIs** - Use descriptive names and detailed descriptions
-
-## Security Considerations
-
-- **Credentials encrypted in Unity Catalog** - API keys stored securely with UC encryption
-- **No credentials in Delta tables** - Only connection references stored in api_http_registry
-- **On-behalf-of authentication** - Each user only sees their own registered APIs
-- **Access control via Unity Catalog** - Manage who can create/use connections
-- **Audit logging** - UC tracks all connection access and modifications
-- **Token validation** - System validates credentials before creating connections
-- **NEVER share API keys** - Only pass keys to `api_key` parameter, never in descriptions
-
-## Summary
-
-The UC HTTP Connections workflow follows this pattern:
-
-1. **Discover** → Understand authentication and capabilities
-2. **Create UC Connection** → Store credentials securely in Unity Catalog
-3. **Register Metadata** → Store API configuration in api_http_registry table
-4. **Validate** → Confirm the connection works
-5. **Use** → Query registry and call APIs as needed
-
-**Key advantages of UC HTTP Connections:**
-- ✅ Credentials encrypted and secured by Unity Catalog
-- ✅ No sensitive data in Delta tables
-- ✅ Centralized credential management
-- ✅ Audit logging and access control
-- ✅ Credential rotation without updating Delta tables
-- ✅ Compliance with security best practices
-
-Each step is supported by specific MCP tools that handle the complexity of API integration, authentication, and secure credential management.
+**That's it! connection_name is the key that links registry → connection → API.**

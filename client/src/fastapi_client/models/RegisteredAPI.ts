@@ -3,20 +3,20 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Model for a registered API.
+ * Model for a registered API using UC HTTP Connections.
  */
 export type RegisteredAPI = {
     api_id: string;
     api_name: string;
     description?: (string | null);
-    api_endpoint: string;
+    connection_name: string;
+    api_path: string;
     documentation_url?: (string | null);
     http_method?: string;
-    auth_type?: string;
     status?: string;
     user_who_requested?: (string | null);
     created_at?: (string | null);
     modified_date?: (string | null);
-    last_validated?: (string | null);
+    validation_message?: (string | null);
 };
 

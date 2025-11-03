@@ -82,7 +82,7 @@ export class DatabaseService {
     }
     /**
      * Validate Api Registry Table
-     * Validate if api_registry table exists in the specified catalog.schema.
+     * Validate if api_http_registry table exists in the specified catalog.schema.
      *
      * Args:
      * catalog: Catalog name

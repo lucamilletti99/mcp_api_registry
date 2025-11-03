@@ -107,9 +107,11 @@ def _execute_sql_query(
         ),
       }
 
-    # Build the full query with catalog/schema if provided
+    # Build the full query with catalog/schema if provided; if the query is an http_connection request then good else bad
     full_query = query
-    if catalog and schema:
+    if "http_request(" in query.lower():
+      full_query = query
+    elif catalog and schema:
       full_query = f'USE CATALOG {catalog}; USE SCHEMA {schema}; {query}'
 
     print(f'🔧 Executing SQL on warehouse {warehouse_id}: {query[:100]}...')
@@ -118,12 +120,12 @@ def _execute_sql_query(
     result = w.statement_execution.execute_statement(
       warehouse_id=warehouse_id, statement=full_query, wait_timeout='30s'
     )
-
+    print(f'XXXX Output executing SQL result: {result}')
     # Process results
     if result.result and result.result.data_array:
       columns = [col.name for col in result.manifest.schema.columns]
       data = []
-
+      
       for row in result.result.data_array[:limit]:
         row_dict = {}
         for i, col in enumerate(columns):
@@ -285,127 +287,377 @@ def load_tools(mcp_server):
       return {'success': False, 'error': f'Error: {str(e)}', 'files': [], 'count': 0}
 
   # ========================================
-  # Unity Catalog HTTP Connection Tools
+  # Unity Catalog HTTP Connection Tools (SQL-based with Secret Scopes)
   # ========================================
 
-  # Private helper function (not an MCP tool)
-  def _create_http_connection_impl(
-    connection_name: str,
-    host: str,
-    bearer_token: str = None,
-    base_path: str = "",
-    port: int = 443,
-    client_id: str = None,
-    client_secret: str = None,
-    oauth_scope: str = None,
-    token_endpoint: str = None,
-    comment: str = None
-  ) -> dict:
-    """Internal implementation for creating UC HTTP connections.
+  # Private helper functions for secret management
 
-    This is a private helper that can be called from other functions.
-    Use create_http_connection() for the MCP tool version.
-    """
+  def _create_secret_scope(scope_name: str) -> dict:
+    """Create a Databricks secret scope if it doesn't exist."""
     try:
       w = get_workspace_client()
 
-      # Build connection options
-      options = {
-        'host': host,
-        'port': str(port),
-      }
+      # Check if scope already exists
+      try:
+        existing_scopes = list(w.secrets.list_scopes())
+        scope_exists = any(s.name == scope_name for s in existing_scopes)
+        if scope_exists:
+          print(f"✅ Secret scope already exists: {scope_name}")
+          return {'success': True, 'scope_name': scope_name, 'created': False}
+      except Exception:
+        pass
 
-      if base_path:
-        options['base_path'] = base_path
+      # Create the scope
+      w.secrets.create_scope(scope=scope_name)
+      print(f"✅ Created secret scope: {scope_name}")
+      return {'success': True, 'scope_name': scope_name, 'created': True}
 
-      # Add authentication options
-      if bearer_token:
-        options['bearer_token'] = bearer_token
-        print(f'🔐 Creating HTTP connection with bearer token authentication')
-      elif client_id and client_secret:
-        options['client_id'] = client_id
-        options['client_secret'] = client_secret
-        if oauth_scope:
-          options['oauth_scope'] = oauth_scope
-        if token_endpoint:
-          options['token_endpoint'] = token_endpoint
-        print(f'🔐 Creating HTTP connection with OAuth authentication')
-      else:
-        return {
-          'success': False,
-          'error': 'Must provide either bearer_token or OAuth credentials (client_id + client_secret)',
-        }
+    except Exception as e:
+      if "already exists" in str(e).lower():
+        print(f"✅ Secret scope already exists: {scope_name}")
+        return {'success': True, 'scope_name': scope_name, 'created': False}
+      print(f"❌ Error creating secret scope: {str(e)}")
+      return {'success': False, 'error': str(e)}
 
-      # Create the connection
-      connection = w.connections.create(
-        name=connection_name,
-        connection_type=ConnectionType.HTTP,
-        options=options,
-        comment=comment or f'HTTP connection for {host}',
+  def _store_secret(scope_name: str, key_name: str, secret_value: str) -> dict:
+    """Store a secret in a Databricks secret scope."""
+    try:
+      w = get_workspace_client()
+      w.secrets.put_secret(scope=scope_name, key=key_name, string_value=secret_value)
+      print(f"🔐 Stored secret: {scope_name}/{key_name}")
+      return {'success': True, 'scope_name': scope_name, 'key_name': key_name}
+    except Exception as e:
+      print(f"❌ Error storing secret: {str(e)}")
+      return {'success': False, 'error': str(e)}
+
+  def _create_http_connection_sql(
+    connection_name: str,
+    host: str,
+    base_path: str,
+    auth_type: str,
+    catalog: str,
+    schema: str,
+    api_name: str = None,
+    port: int = 443,
+    description: str = None
+  ) -> str:
+    """Generate SQL CREATE CONNECTION statement for three auth flavors.
+
+    NOTE: Creates connection in specified catalog.schema by setting context first.
+    """
+    if auth_type not in ['none', 'api_key', 'bearer_token']:
+      raise ValueError(f"auth_type must be 'none', 'api_key', or 'bearer_token'")
+    # Create connection with simple name (catalog/schema set via execute_statement params)
+    # NOTE: Don't use IF NOT EXISTS - it may not be supported for connections
+    # IMPORTANT: Host must include https:// protocol
+    host_with_protocol = host if host.startswith('https://') else f'https://{host}'
+
+    sql = f"""CREATE CONNECTION {connection_name}
+  TYPE HTTP
+  OPTIONS (
+    host '{host_with_protocol}',
+    port '{port}'"""
+
+    if base_path:
+      sql += f""",
+    base_path '{base_path}'"""
+
+    # Handle bearer_token based on auth_type
+    if auth_type == 'bearer_token' and api_name:
+      # Use secret reference for bearer token auth
+      scope_name = f"{api_name}_secrets"
+      sql += f""",
+    bearer_token secret('{scope_name}', 'bearer_token')"""
+    elif auth_type == 'api_key' and api_name:
+      # For API key auth, create empty secret scope
+      scope_name = f"{api_name}_secrets"
+      sql += f""",
+    bearer_token secret('{scope_name}', 'bearer_token')"""
+    else:
+      # For public APIs (auth_type='none'), use a literal placeholder
+      # Databricks requires bearer_token, but we use 'public' as a non-functional placeholder
+      sql += f""",
+    bearer_token 'public'"""
+
+    comment = description or f'HTTP connection for {host}'
+    sql += f"""
+  )
+  COMMENT '{comment}';"""
+    return sql
+
+  def _execute_create_connection_sql(sql: str, warehouse_id: str, catalog: str, schema: str) -> dict:
+    """Execute CREATE CONNECTION SQL statement with catalog/schema context."""
+    try:
+      w = get_workspace_client()
+
+      # Debug: Print the exact SQL being executed
+      print(f"🔍 Executing CREATE CONNECTION SQL:")
+      print(f"   Catalog: {catalog}")
+      print(f"   Schema: {schema}")
+      print(f"   Warehouse: {warehouse_id}")
+      print(f"   SQL Statement:")
+      print("=" * 80)
+      print(sql)
+      print("=" * 80)
+
+      result = w.statement_execution.execute_statement(
+        warehouse_id=warehouse_id,
+        statement=sql,
+        catalog=catalog,
+        schema=schema,
+        wait_timeout="30s"
       )
+
+      if result.status and result.status.state:
+        state = result.status.state.value
+        if state == "SUCCEEDED":
+          print(f"✅ Connection created via SQL in {catalog}.{schema}")
+          return {'success': True, 'state': state}
+        error_msg = result.status.error.message if result.status.error else "Unknown error"
+        print(f"❌ Connection creation failed: {error_msg}")
+        return {'success': False, 'error': error_msg, 'state': state}
+      return {'success': False, 'error': 'No status from SQL execution'}
+    except Exception as e:
+      print(f"❌ Error executing CREATE CONNECTION: {str(e)}")
+      return {'success': False, 'error': str(e)}
+
+  # ========================================
+  # New API Registration with Auth Types
+  # ========================================
+
+  # Private helper for API registration (can be called from multiple tools)
+  def _register_api_impl(
+    api_name: str,
+    description: str,
+    host: str,
+    api_path: str,
+    auth_type: str,
+    warehouse_id: str,
+    catalog: str,
+    schema: str,
+    base_path: str = '',
+    secret_value: str = None,
+    http_method: str = 'GET',
+    parameters: str | dict = None,
+    documentation_url: str = None,
+    port: int = 443
+  ) -> dict:
+    """Private implementation for API registration with SQL-based connections."""
+    try:
+      import json
+
+      # Validate auth_type
+      if auth_type not in ['none', 'api_key', 'bearer_token']:
+        return {'success': False, 'error': f"auth_type must be 'none', 'api_key', or 'bearer_token', got: {auth_type}"}
+
+      if auth_type in ['api_key', 'bearer_token'] and not secret_value:
+        return {'success': False, 'error': f"secret_value required for auth_type '{auth_type}'"}
+
+      # Convert parameters to JSON string if it's a dict
+      parameters_str = None
+      if parameters:
+        if isinstance(parameters, dict):
+          parameters_str = json.dumps(parameters)
+        elif isinstance(parameters, str):
+          parameters_str = parameters
+        else:
+          return {'success': False, 'error': f'parameters must be dict or JSON string, got {type(parameters).__name__}'}
+
+      api_id = str(uuid.uuid4())
+      connection_name = f"{api_name.lower().replace(' ', '_')}_connection"
+      secret_scope = None
+
+      # Step 1: Create secret scope and store secret (only for authenticated APIs)
+      # NOTE: Creating secret scopes requires admin permissions which apps don't have
+      # For public APIs, we'll use a literal placeholder instead
+      secret_scope = None
+
+      if auth_type in ['api_key', 'bearer_token']:
+        # For authenticated APIs, try to create secret scope
+        scope_name = f"{api_name}_secrets"
+
+        scope_result = _create_secret_scope(scope_name)
+        if not scope_result.get('success'):
+          return {
+            'success': False,
+            'error': f"Failed to create secret scope: {scope_result.get('error')}",
+            'help': 'Secret scope creation requires admin permissions. Please pre-create the secret scope or grant the app secrets management permissions.'
+          }
+
+        # Store the actual secret
+        secret_key = 'bearer_token' if auth_type == 'bearer_token' else 'api_key'
+        secret_result = _store_secret(scope_name, secret_key, secret_value)
+        if not secret_result.get('success'):
+          return {'success': False, 'error': f"Failed to store secret: {secret_result.get('error')}"}
+
+        secret_scope = scope_name
+      # For public APIs (auth_type='none'), we don't create secrets at all
+
+      # Step 2: Drop existing connection if it exists (to handle auth type changes)
+      print(f"🗑️  Dropping connection '{connection_name}' if it exists...")
+      drop_sql = f"DROP CONNECTION {connection_name};"
+      try:
+        w = get_workspace_client()
+        drop_result = w.statement_execution.execute_statement(
+          warehouse_id=warehouse_id,
+          statement=drop_sql,
+          catalog=catalog,
+          schema=schema,
+          wait_timeout="30s"
+        )
+        if drop_result.status and drop_result.status.state.value == "SUCCEEDED":
+          print(f"✅ Dropped existing connection")
+      except Exception as e:
+        # Connection doesn't exist or other error - that's OK, we'll create it fresh
+        print(f"⚠️  Could not drop connection (likely doesn't exist): {str(e)[:200]}")
+        # Continue anyway
+
+      # Step 3: Create HTTP connection via SQL
+      create_sql = _create_http_connection_sql(
+        connection_name=connection_name,
+        host=host,
+        base_path=base_path,
+        auth_type=auth_type,
+        catalog=catalog,
+        schema=schema,
+        api_name=api_name,  # Always pass api_name (needed for secret scope reference)
+        port=port,
+        description=description
+      )
+
+      sql_result = _execute_create_connection_sql(create_sql, warehouse_id, catalog, schema)
+      if not sql_result.get('success'):
+        return {'success': False, 'error': f"Failed to create connection: {sql_result.get('error')}"}
+
+      # Step 3: Register in database
+      w = get_workspace_client()
+      user_email = w.current_user.me().user_name
+      table_name = f'{catalog}.{schema}.api_http_registry'
+      now = datetime.now(timezone.utc).isoformat()
+
+      def escape_sql_string(s):
+        if s is None:
+          return None
+        return s.replace("'", "''").replace("\\", "\\\\")
+
+      insert_query = f"""
+INSERT INTO {table_name}
+(api_id, api_name, description, connection_name, host, base_path, api_path,
+ auth_type, secret_scope, http_method, documentation_url, parameters,
+ status, user_who_requested, created_at, modified_date)
+VALUES (
+  '{api_id}',
+  '{escape_sql_string(api_name)}',
+  '{escape_sql_string(description)}',
+  '{connection_name}',
+  '{host}',
+  {f"'{escape_sql_string(base_path)}'" if base_path else 'NULL'},
+  '{escape_sql_string(api_path)}',
+  '{auth_type}',
+  {f"'{secret_scope}'" if secret_scope else 'NULL'},
+  '{http_method}',
+  {f"'{escape_sql_string(documentation_url)}'" if documentation_url else 'NULL'},
+  {f"'{escape_sql_string(parameters_str)}'" if parameters_str else 'NULL'},
+  'registered',
+  '{user_email}',
+  '{now}',
+  '{now}'
+)
+"""
+
+      result = _execute_sql_query(insert_query, warehouse_id, catalog=None, schema=None, limit=1)
+
+      if not result.get('success'):
+        return {'success': False, 'error': f"Failed to insert into registry: {result.get('error')}"}
 
       return {
         'success': True,
-        'connection_name': connection.name,
-        'connection_type': connection.connection_type.value,
-        'host': host,
-        'base_path': base_path,
-        'message': f'✅ Successfully created HTTP connection: {connection_name}',
+        'api_id': api_id,
+        'api_name': api_name,
+        'connection_name': connection_name,
+        'auth_type': auth_type,
+        'secret_scope': secret_scope,
+        'message': f'✅ Successfully registered API "{api_name}"',
         'next_steps': [
-          f'Grant access: GRANT USE CONNECTION ON {connection_name} TO <user_or_group>',
-          f'Register an API using this connection with: register_api_with_connection()',
-        ],
+          f'Call API: call_parameterized_api(api_id="{api_id}", warehouse_id="...", params={{...}})',
+          f'List APIs: check_api_http_registry(warehouse_id="...", catalog="{catalog}", schema="{schema}")'
+        ]
       }
 
     except Exception as e:
-      print(f'❌ Error creating HTTP connection: {str(e)}')
-      return {'success': False, 'error': f'Error: {str(e)}'}
+      print(f'❌ Error registering API: {str(e)}')
+      return {'success': False, 'error': str(e)}
 
   @mcp_server.tool
-  def create_http_connection(
-    connection_name: str,
+  def register_api(
+    api_name: str,
+    description: str,
     host: str,
-    bearer_token: str = None,
-    base_path: str = "",
-    port: int = 443,
-    client_id: str = None,
-    client_secret: str = None,
-    oauth_scope: str = None,
-    token_endpoint: str = None,
-    comment: str = None
+    api_path: str,
+    auth_type: str,
+    warehouse_id: str,
+    catalog: str,
+    schema: str,
+    base_path: str = '',
+    secret_value: str = None,
+    http_method: str = 'GET',
+    parameters: str | dict = None,
+    documentation_url: str = None,
+    port: int = 443
   ) -> dict:
-    """Create a Unity Catalog HTTP connection with secure credential storage.
+    """Register an API with automatic connection and secret setup.
 
-    This creates a managed HTTP connection in Unity Catalog that securely stores
-    credentials (bearer tokens or OAuth credentials) and can be shared across users.
+    This is the main tool for registering APIs. It supports three authentication types:
+    - 'none': Public API with no authentication
+    - 'api_key': API key passed as query parameter (e.g., FRED API)
+    - 'bearer_token': Bearer token in Authorization header (e.g., GitHub API)
+
+    The tool automatically:
+    1. Creates secret scope (if auth required)
+    2. Stores secret (if auth required)
+    3. Creates UC HTTP connection via SQL
+    4. Registers API metadata in registry table
 
     Args:
-        connection_name: Unique name for the connection
-        host: Hostname of the API (e.g., 'www.alphavantage.co')
-        bearer_token: Bearer token for token-based auth (optional)
-        base_path: Base path to prepend to all requests (optional, e.g., '/query')
-        port: Port number (default: 443)
-        client_id: OAuth client ID (for OAuth auth)
-        client_secret: OAuth client secret (for OAuth auth)
-        oauth_scope: OAuth scope (for OAuth auth)
-        token_endpoint: OAuth token endpoint (for OAuth auth)
-        comment: Description of the connection (optional)
+        api_name: Unique name for the API (e.g., "fred_economic_data")
+        description: What the API does
+        host: API host (e.g., "api.stlouisfed.org")
+        api_path: Endpoint path (e.g., "/fred/series/observations")
+        auth_type: 'none', 'api_key', or 'bearer_token'
+        warehouse_id: SQL warehouse ID
+        catalog: Catalog name
+        schema: Schema name
+        base_path: Base path for connection (optional, e.g., "/fred")
+        secret_value: API key or bearer token (required if auth_type != 'none')
+        http_method: HTTP method (default: GET)
+        parameters: Parameter definitions as JSON string or dict (optional)
+                   Example: '{"query_params": [{"name": "filter", "type": "string", "required": false}]}'
+                   Or as dict: {"query_params": [{"name": "filter", "type": "string", "required": false}]}
+        documentation_url: API docs URL (optional)
+        port: Connection port (default: 443)
 
     Returns:
-        Dictionary with connection creation results
+        Dictionary with registration results
     """
-    return _create_http_connection_impl(
-      connection_name=connection_name,
+    return _register_api_impl(
+      api_name=api_name,
+      description=description,
       host=host,
-      bearer_token=bearer_token,
+      api_path=api_path,
+      auth_type=auth_type,
+      warehouse_id=warehouse_id,
+      catalog=catalog,
+      schema=schema,
       base_path=base_path,
-      port=port,
-      client_id=client_id,
-      client_secret=client_secret,
-      oauth_scope=oauth_scope,
-      token_endpoint=token_endpoint,
-      comment=comment
+      secret_value=secret_value,
+      http_method=http_method,
+      parameters=parameters,
+      documentation_url=documentation_url,
+      port=port
     )
+
+  # Note: Old connection management tools deprecated in favor of new register_api
+  # which handles connection creation automatically
 
   @mcp_server.tool
   def list_http_connections() -> dict:
@@ -737,10 +989,11 @@ VALUES (
     parameters: str = None,
     validate: bool = True
   ) -> dict:
-    """Register an API using an existing Unity Catalog HTTP connection.
+    """DEPRECATED: Use register_api() instead.
 
-    This stores API metadata in the api_http_registry table. Credentials are
-    securely managed by the UC HTTP Connection, not stored in the table.
+    This tool is deprecated and kept only for backward compatibility.
+    Please use register_api() which supports the new SQL-based architecture
+    with three authentication types (none, api_key, bearer_token).
 
     Args:
         api_name: Unique name for the API
@@ -753,28 +1006,23 @@ VALUES (
         http_method: HTTP method (default: GET)
         request_headers: JSON string of additional headers (optional)
         documentation_url: URL to API documentation (optional)
-        parameters: JSON string defining dynamic parameters (optional), e.g.:
-            '{"query_params": [{"name": "series_id", "type": "string", "required": true,
-                                "description": "FRED series ID", "examples": ["GDPC1", "UNRATE"]}]}'
+        parameters: JSON string defining dynamic parameters (optional)
         validate: Whether to test the connection after registering (default: True)
 
     Returns:
-        Dictionary with registration results
+        Dictionary with deprecation warning
     """
-    return _register_api_with_connection_impl(
-      api_name=api_name,
-      description=description,
-      connection_name=connection_name,
-      api_path=api_path,
-      warehouse_id=warehouse_id,
-      catalog=catalog,
-      schema=schema,
-      http_method=http_method,
-      request_headers=request_headers,
-      documentation_url=documentation_url,
-      parameters=parameters,
-      validate=validate
-    )
+    return {
+      'success': False,
+      'error': 'DEPRECATED: register_api_with_connection() is deprecated. Please use register_api() or smart_register_with_connection() instead.',
+      'deprecation_notice': 'This tool has been replaced by the new SQL-based architecture.',
+      'recommended_tool': 'register_api',
+      'migration_guide': {
+        'old_way': 'register_api_with_connection(api_name, description, connection_name, api_path, ...)',
+        'new_way': 'register_api(api_name, description, host, api_path, auth_type, secret_value, ...)',
+        'example': 'register_api(api_name="fred_test", host="api.stlouisfed.org", api_path="/fred/series", auth_type="api_key", secret_value="YOUR_KEY", ...)'
+      }
+    }
 
   @mcp_server.tool
   def call_registered_api(
@@ -830,41 +1078,64 @@ VALUES (
       api_path = api_row.get('api_path', '')
       http_method = api_row.get('http_method', 'GET')
 
-      # Build full path with query params
-      full_path = api_path
+      # Build path for SQL http_request
+      api_path_with_params = api_path
       if query_params:
         # query_params is already a URL-encoded string
-        separator = '&' if '?' in full_path else '?'
-        full_path = f'{full_path}{separator}{query_params}'
+        separator = '&' if '?' in api_path_with_params else '?'
+        api_path_with_params = f'{api_path_with_params}{separator}{query_params}'
 
-      # Make request using UC HTTP connection
+      # Use full connection name (catalog.schema.connection_name)
+      full_connection_name = f"{catalog}.{schema}.{connection_name}"
+
+      print(f'🌐 Calling API via SQL http_request()')
+      print(f'   Connection: {full_connection_name}')
+      print(f'   Path: {api_path_with_params}')
+      print(f'   Method: {http_method}')
+
+      # Build SQL query using http_request() function
+      import json
+      headers_map = "map('Accept', 'application/json')"
+      if additional_headers:
+        try:
+          headers_dict = json.loads(additional_headers) if isinstance(additional_headers, str) else additional_headers
+          header_pairs = [f"'{k}', '{v}'" for k, v in headers_dict.items()]
+          headers_map = f"map({', '.join(header_pairs)})"
+        except:
+          print(f'⚠️  Could not parse additional_headers, using default')
+
+      sql = f"""SELECT http_request(
+  conn => '{full_connection_name}',
+  method => '{http_method}',
+  path => '{api_path_with_params}',
+  headers => {headers_map}
+) as response"""
+
+      # Execute the SQL
       w = get_workspace_client()
-
-      method_map = {
-        'GET': ExternalFunctionRequestHttpMethod.GET,
-        'POST': ExternalFunctionRequestHttpMethod.POST,
-        'PUT': ExternalFunctionRequestHttpMethod.PUT,
-        'DELETE': ExternalFunctionRequestHttpMethod.DELETE,
-        'PATCH': ExternalFunctionRequestHttpMethod.PATCH,
-      }
-      method_enum = method_map.get(http_method.upper(), ExternalFunctionRequestHttpMethod.GET)
-
-      print(f'🌐 Calling API via UC connection: {connection_name}')
-      print(f'   Path: {full_path}')
-
-      response = w.serving_endpoints.http_request(
-        conn=connection_name,
-        method=method_enum,
-        path=full_path,
-        headers=additional_headers,
+      sql_result = w.statement_execution.execute_statement(
+        warehouse_id=warehouse_id,
+        statement=sql,
+        wait_timeout="30s"
       )
 
-      # Parse response
+      if not sql_result.status or not sql_result.status.state:
+        return {'success': False, 'error': 'No status from SQL execution'}
+
+      state = sql_result.status.state.value
+      if state != "SUCCEEDED":
+        error_msg = sql_result.status.error.message if sql_result.status.error else "Unknown error"
+        return {'success': False, 'error': f'SQL http_request failed: {error_msg}', 'state': state}
+
+      # Parse response from SQL result
       response_data = None
-      if hasattr(response, 'json') and response.json:
-        response_data = response.json
-      elif hasattr(response, 'text'):
-        response_data = response.text
+      if sql_result.result and sql_result.result.data_array:
+        if len(sql_result.result.data_array) > 0 and len(sql_result.result.data_array[0]) > 0:
+          response_str = sql_result.result.data_array[0][0]
+          try:
+            response_data = json.loads(response_str)
+          except:
+            response_data = response_str
 
       return {
         'success': True,
@@ -872,7 +1143,7 @@ VALUES (
         'api_name': api_row.get('api_name'),
         'connection_name': connection_name,
         'response': response_data,
-        'message': '✅ API call successful',
+        'message': '✅ API call successful via SQL',
       }
 
     except Exception as e:
@@ -885,22 +1156,35 @@ VALUES (
     warehouse_id: str,
     catalog: str,
     schema: str,
-    params: str = None
+    params: str | dict = None
   ) -> dict:
-    """Call a parameterized API with dynamic parameters.
+    """Call a parameterized API with dynamic parameters and documentation validation.
 
-    This retrieves the API from the registry, reads its parameter definitions,
-    and makes a request with the provided parameter values.
+    **NEW: This tool now fetches API documentation to validate path structure and parameters.**
+
+    This retrieves the API from the registry, fetches its documentation (if available),
+    validates the path structure against documentation, and makes the API request.
+
+    The response includes:
+    - API response data
+    - Path structure used (base_path + api_path)
+    - Documentation validation results (if documentation_url is available)
+    - Warnings if stored path doesn't match documentation
 
     Args:
         api_id: ID of the registered API to call
         warehouse_id: SQL warehouse ID to query registry
         catalog: Catalog name (required)
         schema: Schema name (required)
-        params: JSON string of parameter values, e.g.: '{"series_id": "GDPC1", "frequency": "q"}'
+        params: Parameter values as JSON string or dict, e.g.: '{"series_id": "GDPC1", "frequency": "q"}' or {"series_id": "GDPC1"}
 
     Returns:
-        Dictionary with API response
+        Dictionary with:
+        - success: Boolean indicating call success
+        - response: API response data
+        - path_used: Structure showing base_path, api_path, and full_path
+        - documentation_validation: (if docs available) Validation results and warnings
+        - parameters_used: The parameters that were sent
     """
     if not catalog or not schema:
       return {
@@ -911,10 +1195,11 @@ VALUES (
     try:
       import json
 
-      # Get API metadata from registry (including parameter definitions)
+      # Get API metadata from registry (including documentation_url for validation)
       table_name = f'{catalog}.{schema}.api_http_registry'
       query = f"""
-        SELECT api_name, connection_name, api_path, http_method, parameters
+        SELECT api_name, connection_name, host, base_path, api_path, http_method,
+               parameters, auth_type, secret_scope, documentation_url
         FROM {table_name}
         WHERE api_id = '{api_id}'
       """
@@ -929,20 +1214,61 @@ VALUES (
 
       # Get API details
       api_row = result['data']['rows'][0]
+      api_name = api_row.get('api_name')
       connection_name = api_row.get('connection_name')
+      host = api_row.get('host', '')
+      base_path = api_row.get('base_path', '')
       api_path = api_row.get('api_path', '')
       http_method = api_row.get('http_method', 'GET')
       parameters_json = api_row.get('parameters')
+      auth_type = api_row.get('auth_type', 'none')
+      secret_scope = api_row.get('secret_scope')
+      documentation_url = api_row.get('documentation_url')
 
-      # Parse provided parameters
+      # CRITICAL: Fetch documentation to validate path structure
+      doc_insights = None
+      if documentation_url:
+        print(f'📚 Fetching documentation to validate path structure: {documentation_url}')
+        doc_result = _fetch_api_documentation_impl(documentation_url=documentation_url)
+
+        if doc_result.get('success'):
+          doc_insights = {
+            'found_urls': doc_result.get('found_urls', []),
+            'found_paths': doc_result.get('found_paths', []),
+            'found_params': doc_result.get('found_params', []),
+            'content_preview': doc_result.get('content_preview', '')[:500]
+          }
+          print(f'✅ Documentation fetched: Found {len(doc_insights["found_paths"])} endpoint paths')
+
+          # Warn if stored api_path doesn't appear in documentation
+          full_expected_path = f"{base_path}{api_path}" if base_path else api_path
+          path_matches = [p for p in doc_insights['found_paths'] if api_path in p or p in full_expected_path]
+
+          if not path_matches and doc_insights['found_paths']:
+            print(f'⚠️  WARNING: Stored api_path "{api_path}" not found in documentation!')
+            print(f'   Documentation suggests these paths: {doc_insights["found_paths"][:3]}')
+        else:
+          print(f'⚠️  Could not fetch documentation: {doc_result.get("error")}')
+
+      # Parse provided parameters - accept both dict and JSON string
       provided_params = {}
       if params:
-        try:
-          provided_params = json.loads(params)
-        except json.JSONDecodeError:
+        if isinstance(params, dict):
+          # Already a dictionary, use directly
+          provided_params = params
+        elif isinstance(params, str):
+          # JSON string, parse it
+          try:
+            provided_params = json.loads(params)
+          except json.JSONDecodeError:
+            return {
+              'success': False,
+              'error': f'Invalid params JSON: {params}',
+            }
+        else:
           return {
             'success': False,
-            'error': f'Invalid params JSON: {params}',
+            'error': f'params must be a dict or JSON string, got {type(params).__name__}',
           }
 
       # Parse parameter definitions
@@ -968,54 +1294,99 @@ VALUES (
           'parameter_definitions': param_defs,
         }
 
-      # Build query string from provided parameters
-      from urllib.parse import urlencode
-      query_string = urlencode(provided_params) if provided_params else ''
+      # Build SQL http_request() call with proper auth handling
+      # Use full connection name (catalog.schema.connection_name)
+      full_connection_name = f"{catalog}.{schema}.{connection_name}"
 
-      # Build full path
-      full_path = api_path
-      if query_string:
-        separator = '&' if '?' in full_path else '?'
-        full_path = f'{full_path}{separator}{query_string}'
-
-      # Make request using UC HTTP connection
-      w = get_workspace_client()
-
-      method_map = {
-        'GET': ExternalFunctionRequestHttpMethod.GET,
-        'POST': ExternalFunctionRequestHttpMethod.POST,
-        'PUT': ExternalFunctionRequestHttpMethod.PUT,
-        'DELETE': ExternalFunctionRequestHttpMethod.DELETE,
-        'PATCH': ExternalFunctionRequestHttpMethod.PATCH,
-      }
-      method_enum = method_map.get(http_method.upper(), ExternalFunctionRequestHttpMethod.GET)
-
-      print(f'🌐 Calling parameterized API via UC connection: {connection_name}')
-      print(f'   Path: {full_path}')
+      print(f'🌐 Calling parameterized API via SQL http_request()')
+      print(f'   Connection: {full_connection_name}')
+      print(f'   Path: {api_path}')
+      print(f'   Auth Type: {auth_type}')
       print(f'   Parameters: {provided_params}')
 
-      response = w.serving_endpoints.http_request(
-        conn=connection_name,
-        method=method_enum,
-        path=full_path,
+      # Build params map for SQL
+      param_entries = []
+
+      # For api_key auth, add secret reference to params
+      if auth_type == 'api_key':
+        if not secret_scope:
+          return {'success': False, 'error': 'API key auth configured but no secret scope found'}
+        param_entries.append(f"'api_key', secret('{secret_scope}', 'api_key')")
+
+      # Add user-provided parameters
+      for key, value in provided_params.items():
+        # Escape single quotes in values
+        escaped_value = str(value).replace("'", "''")
+        param_entries.append(f"'{key}', '{escaped_value}'")
+
+      params_str = ",\n    ".join(param_entries) if param_entries else ""
+      params_map = f"map(\n    {params_str}\n  )" if params_str else "NULL"
+
+      # Build the SQL query
+      sql = f"""SELECT http_request(
+  conn => '{full_connection_name}',
+  method => '{http_method}',
+  path => '{api_path}',
+  params => {params_map},
+  headers => map('Accept', 'application/json')
+) as response"""
+
+      # Execute the SQL
+      w = get_workspace_client()
+      sql_result = w.statement_execution.execute_statement(
+        warehouse_id=warehouse_id,
+        statement=sql,
+        wait_timeout="30s"
       )
 
-      # Parse response
-      response_data = None
-      if hasattr(response, 'json') and response.json:
-        response_data = response.json
-      elif hasattr(response, 'text'):
-        response_data = response.text
+      if not sql_result.status or not sql_result.status.state:
+        return {'success': False, 'error': 'No status from SQL execution'}
 
-      return {
+      state = sql_result.status.state.value
+      if state != "SUCCEEDED":
+        error_msg = sql_result.status.error.message if sql_result.status.error else "Unknown error"
+        return {'success': False, 'error': f'SQL http_request failed: {error_msg}', 'state': state}
+
+      # Parse response from SQL result
+      response_data = None
+      if sql_result.result and sql_result.result.data_array:
+        if len(sql_result.result.data_array) > 0 and len(sql_result.result.data_array[0]) > 0:
+          response_str = sql_result.result.data_array[0][0]
+          try:
+            response_data = json.loads(response_str)
+          except:
+            response_data = response_str
+
+      result_data = {
         'success': True,
         'api_id': api_id,
-        'api_name': api_row.get('api_name'),
+        'api_name': api_name,
         'connection_name': connection_name,
+        'auth_type': auth_type,
+        'path_used': {
+          'base_path': base_path,
+          'api_path': api_path,
+          'full_path': f"{base_path}{api_path}" if base_path else api_path
+        },
         'parameters_used': provided_params,
         'response': response_data,
-        'message': '✅ Parameterized API call successful',
+        'message': '✅ Parameterized API call successful via SQL',
       }
+
+      # Include documentation insights if fetched
+      if doc_insights:
+        result_data['documentation_validation'] = {
+          'documentation_url': documentation_url,
+          'found_paths_in_docs': doc_insights['found_paths'],
+          'found_params_in_docs': doc_insights['found_params'],
+          'warning': (
+            f'⚠️  Stored api_path may not match documentation. Check found_paths_in_docs.'
+            if doc_insights['found_paths'] and api_path not in str(doc_insights['found_paths'])
+            else None
+          )
+        }
+
+      return result_data
 
     except Exception as e:
       print(f'❌ Error calling parameterized API: {str(e)}')
@@ -1025,26 +1396,11 @@ VALUES (
   # API Discovery & Smart Registration Tools
   # ========================================
 
-  @mcp_server.tool
-  def fetch_api_documentation(documentation_url: str, timeout: int = 10) -> dict:
-    """Fetch and parse API documentation from a URL.
+  # Private helper for documentation fetching (can be called from other functions)
+  def _fetch_api_documentation_impl(documentation_url: str, timeout: int = 10) -> dict:
+    """Internal implementation for fetching API documentation.
 
-    This tool automatically fetches API documentation pages and extracts
-    useful information like endpoint URLs, parameters, and code examples.
-    Use this when the user provides a documentation link.
-
-    Args:
-        documentation_url: URL of the API documentation page
-        timeout: Request timeout in seconds (default: 10)
-
-    Returns:
-        Dictionary with:
-        - success: Boolean indicating if fetch succeeded
-        - content_preview: Preview of documentation content
-        - found_urls: List of API URLs found in the documentation
-        - found_paths: List of API endpoint paths found
-        - found_params: List of common parameter names found
-        - code_examples_count: Number of code examples in the docs
+    This is a private helper that can be called from other tools without MCP tool conflicts.
     """
     try:
       import requests
@@ -1095,6 +1451,29 @@ VALUES (
     except Exception as e:
       print(f'❌ Error fetching documentation: {str(e)}')
       return {'success': False, 'error': f'Error: {str(e)}'}
+
+  @mcp_server.tool
+  def fetch_api_documentation(documentation_url: str, timeout: int = 10) -> dict:
+    """Fetch and parse API documentation from a URL.
+
+    This tool automatically fetches API documentation pages and extracts
+    useful information like endpoint URLs, parameters, and code examples.
+    Use this when the user provides a documentation link.
+
+    Args:
+        documentation_url: URL of the API documentation page
+        timeout: Request timeout in seconds (default: 10)
+
+    Returns:
+        Dictionary with:
+        - success: Boolean indicating if fetch succeeded
+        - content_preview: Preview of documentation content
+        - found_urls: List of API URLs found in the documentation
+        - found_paths: List of API endpoint paths found
+        - found_params: List of common parameter names found
+        - code_examples_count: Number of code examples in the docs
+    """
+    return _fetch_api_documentation_impl(documentation_url, timeout)
 
   @mcp_server.tool
   def discover_api_endpoint(endpoint_url: str, api_key: str = None, timeout: int = 10) -> dict:
@@ -1246,161 +1625,128 @@ VALUES (
     api_name: str,
     description: str,
     endpoint_url: str,
-    api_key: str,
+    documentation_url: str,
     warehouse_id: str,
     catalog: str,
     schema: str,
-    documentation_url: str = None,
+    api_key: str = None,
     http_method: str = 'GET'
   ) -> dict:
-    """Smart one-step API registration: creates UC connection + registers API.
+    """Smart one-step API registration with documentation-based parsing.
 
-    This is the easiest way to register an API. It handles:
-    1. Parsing the endpoint URL to extract host and path
-    2. Creating a Unity Catalog HTTP connection with secure credentials
-    3. Registering the API metadata in api_http_registry
-    4. Validating the connection works
+    **CRITICAL: This tool requires documentation_url to properly extract the API structure.**
+
+    This tool:
+    1. Fetches and parses the API documentation
+    2. Analyzes the documentation to extract URL structure
+    3. Returns the parsed information for you to use with register_api()
+
+    **WORKFLOW:**
+    1. Call this function with documentation_url
+    2. Analyze the returned documentation insights (found_urls, found_paths, content_preview)
+    3. Determine the correct host, base_path, and api_path split
+    4. Call register_api() directly with the correct parameters
+
+    For public APIs (no authentication), simply omit the api_key parameter.
 
     Args:
-        api_name: Unique name for the API (e.g., "alphavantage_stock_api")
+        api_name: Unique name for the API (e.g., "fred_economic_data")
         description: Description of what the API does
-        endpoint_url: Full API endpoint URL (e.g., "https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY")
-        api_key: API key or bearer token for authentication
+        endpoint_url: Full API endpoint URL (e.g., "https://api.stlouisfed.org/fred/series/observations")
+        documentation_url: REQUIRED - URL to API documentation (for parsing structure)
         warehouse_id: SQL warehouse ID for database operations
         catalog: Catalog name (required)
         schema: Schema name (required)
-        documentation_url: Optional URL to API documentation
+        api_key: API key or bearer token for authentication (optional for public APIs)
         http_method: HTTP method (default: GET)
 
     Returns:
-        Dictionary with registration results including connection name and API ID
+        Dictionary with documentation parsing results and guidance for using register_api()
     """
     try:
-      from urllib.parse import urlparse
+      from urllib.parse import urlparse, parse_qs, urlencode
 
       print(f'🚀 Smart registration starting for: {api_name}')
+      print(f'📚 Documentation-first workflow: Fetching API documentation...')
 
-      # Step 1: Parse endpoint URL
-      from urllib.parse import parse_qs, urlencode
+      # Step 1: MANDATORY - Fetch and parse documentation FIRST
+      doc_result = _fetch_api_documentation_impl(documentation_url=documentation_url)
 
+      if not doc_result.get('success'):
+        return {
+          'success': False,
+          'error': f'Failed to fetch documentation: {doc_result.get("error")}',
+          'guidance': 'Cannot proceed without documentation. Please provide a valid documentation_url.'
+        }
+
+      # Step 2: Parse endpoint URL for basic structure
       parsed = urlparse(endpoint_url)
-      # UC HTTP connections need full URL with protocol (e.g., https://api.example.com)
-      host = f'{parsed.scheme}://{parsed.netloc}'
+      host = parsed.netloc  # Just the host, no protocol
 
-      # Parse query string to extract and remove sensitive parameters
+      # Parse query string to extract and remove API key
       query_params = parse_qs(parsed.query) if parsed.query else {}
-
-      # Extract API key from query params (if present) to use as bearer token
       api_key_from_url = None
       sensitive_param_names = ['api_key', 'apikey', 'key', 'token', 'access_token']
 
       for param_name in sensitive_param_names:
         if param_name in query_params:
           api_key_from_url = query_params[param_name][0]
-          # Remove the sensitive parameter from query params
           del query_params[param_name]
           print(f'🔑 Extracted API key from URL parameter: {param_name}')
           break
 
       # Use extracted key if no explicit api_key was provided
-      if not api_key and api_key_from_url:
-        api_key = api_key_from_url
-        print(f'🔐 Using extracted API key for UC connection')
+      secret_value = api_key or api_key_from_url
 
-      # Rebuild query string without sensitive parameters
-      clean_query = urlencode(query_params, doseq=True) if query_params else ''
+      # Determine auth type
+      auth_type = 'api_key' if secret_value else 'none'
 
-      # Build path (path + cleaned query string)
-      path = parsed.path
-      if clean_query:
-        path = f'{path}?{clean_query}'
+      print(f'📍 Endpoint URL provided: {endpoint_url}')
+      print(f'📄 Documentation fetched successfully')
+      print(f'🔍 Found {len(doc_result.get("found_urls", []))} URLs and {len(doc_result.get("found_paths", []))} paths in documentation')
 
-      base_path = parsed.path.rsplit('/', 1)[0] if '/' in parsed.path else ''
-
-      print(f'📍 Parsed endpoint - Host: {host}, Path: {path}, Base path: {base_path}')
-      if api_key_from_url:
-        print(f'🔒 API key removed from path and stored securely in UC connection')
-
-      # Step 2: Create UC HTTP Connection (or reuse existing)
-      connection_name = f'{api_name.lower().replace(" ", "_")}_connection'
-
-      print(f'🔐 Checking for existing UC HTTP connection: {connection_name}')
-
-      w = get_workspace_client()
-
-      # Check if connection already exists
-      connection_exists = False
-      try:
-        existing_conn = w.connections.get(connection_name)
-        if existing_conn:
-          connection_exists = True
-          print(f'✅ Connection already exists, reusing: {connection_name}')
-      except Exception:
-        connection_exists = False
-
-      # Only create if it doesn't exist
-      if not connection_exists:
-        print(f'🔐 Creating new UC HTTP connection: {connection_name}')
-        connection_result = _create_http_connection_impl(
-          connection_name=connection_name,
-          host=host,
-          bearer_token=api_key,
-          base_path=base_path,
-          comment=f'HTTP connection for {api_name}'
-        )
-
-        if not connection_result.get('success'):
-          return {
-            'success': False,
-            'error': f"Failed to create UC connection: {connection_result.get('error')}",
-            'step_failed': 'create_connection',
-          }
-
-      # Step 3: Register API in registry
-      print(f'📝 Registering API in registry...')
-
-      # Extract just the path part (remove base_path)
-      api_path = path
-      if base_path and path.startswith(base_path):
-        api_path = path[len(base_path):]
-
-      registration_result = _register_api_with_connection_impl(
-        api_name=api_name,
-        description=description,
-        connection_name=connection_name,
-        api_path=api_path,
-        warehouse_id=warehouse_id,
-        catalog=catalog,
-        schema=schema,
-        http_method=http_method,
-        documentation_url=documentation_url,
-        parameters=None,  # TODO: Auto-detect parameters from documentation
-        validate=False  # Disable validation - requires working API key
-      )
-
-      if not registration_result.get('success'):
-        # Cleanup: delete the connection if registration failed
-        print(f'⚠️  Registration failed, cleaning up connection...')
-        _delete_http_connection_impl(connection_name)
-        return {
-          'success': False,
-          'error': f"Failed to register API: {registration_result.get('error')}",
-          'step_failed': 'register_api',
-        }
-
-      # Success!
+      # Step 3: Return documentation insights and guidance for LLM
       return {
         'success': True,
-        'api_id': registration_result.get('api_id'),
-        'api_name': api_name,
-        'connection_name': connection_name,
-        'status': registration_result.get('status'),
-        'message': f'✅ Successfully registered API "{api_name}" with UC connection "{connection_name}"',
+        'action_required': 'ANALYZE_DOCS_AND_CALL_REGISTER_API',
+        'message': (
+          '✅ Documentation fetched successfully. '
+          'You MUST now analyze the documentation and call register_api() with the correct parameters.'
+        ),
+        'documentation_insights': {
+          'found_urls': doc_result.get('found_urls', []),
+          'found_paths': doc_result.get('found_paths', []),
+          'found_params': doc_result.get('found_params', []),
+          'content_preview': doc_result.get('content_preview', ''),
+          'code_examples_count': doc_result.get('code_examples_count', 0)
+        },
+        'endpoint_url_parsed': {
+          'full_url': endpoint_url,
+          'host': host,
+          'path': parsed.path,
+          'detected_auth_type': auth_type
+        },
         'next_steps': [
-          f'View registered APIs: check_api_http_registry()',
-          f'Call the API: call_registered_api(api_id="{registration_result.get("api_id")}")',
-          f'View connection details: list_http_connections()',
-        ],
+          '1. Analyze the documentation insights above',
+          '2. Identify the correct split: host, base_path, and api_path',
+          '3. Identify required parameters from documentation',
+          '4. Call register_api() with the correct parameters',
+          '',
+          'Example:',
+          'register_api(',
+          f'  api_name="{api_name}",',
+          f'  description="{description}",',
+          '  host="extracted-host-from-docs",',
+          '  base_path="/common/prefix/for/all/endpoints",',
+          '  api_path="/specific/endpoint/path",',
+          f'  auth_type="{auth_type}",',
+          f'  warehouse_id="{warehouse_id}",',
+          f'  catalog="{catalog}",',
+          f'  schema="{schema}",',
+          '  parameters=\'{"query_params": [...]}\',',
+          f'  documentation_url="{documentation_url}"',
+          ')'
+        ]
       }
 
     except Exception as e:
