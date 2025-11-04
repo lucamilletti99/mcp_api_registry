@@ -711,7 +711,7 @@ export function ChatPageAgent({
         {messages.length === 0 ? (
           /* Empty State */
           <div className="flex flex-col items-center justify-center min-h-full px-6 py-20">
-            <div className="max-w-3xl w-full space-y-8">
+            <div className="max-w-5xl w-full space-y-8">
               <div className="text-center space-y-4">
                 <h1 className={`text-5xl font-bold ${
                   isDark ? "text-white" : "text-gray-900"
@@ -782,7 +782,7 @@ export function ChatPageAgent({
           </div>
         ) : (
           /* Conversation View */
-          <div className="max-w-4xl mx-auto py-8 px-6 space-y-6">
+          <div className="max-w-7xl mx-auto py-8 px-6 space-y-6">
             {messages.map((message, index) => (
               <div
                 key={index}
@@ -1068,7 +1068,7 @@ export function ChatPageAgent({
         } backdrop-blur-sm border-t ${
           isDark ? "border-white/10" : "border-gray-200"
         }`}>
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-7xl mx-auto">
             {/* Quick Action Buttons - Horizontal row above input */}
             <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-2">
               {suggestedActions.map((action, index) => (
