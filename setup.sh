@@ -436,17 +436,6 @@ fi
 
 echo "✅ All required tools are available"
 
-# Install Claude MCP Playwright (if Claude Code is available)
-echo ""
-echo "🎭 Installing Claude MCP Playwright..."
-if command -v claude &> /dev/null; then
-    claude mcp add playwright npx '@playwright/mcp@latest'
-    echo "✅ Claude MCP Playwright installed"
-else
-    echo "⚠️  Claude Code CLI not found, skipping MCP Playwright installation"
-    echo "💡 You can install it later with: claude mcp add playwright npx '@playwright/mcp@latest'"
-fi
-
 # Install Python dependencies
 echo "📦 Installing Python dependencies..."
 uv sync --dev
@@ -460,13 +449,10 @@ cd ..
 echo ""
 echo "🎉 Setup complete!"
 echo ""
-echo "⚠️  IMPORTANT: Please restart Claude Code to enable MCP Playwright integration"
-echo ""
 echo "Next steps:"
-echo "1. Restart Claude Code (close and reopen the application)"
-echo "2. Run './watch.sh' to start the development servers"
-echo "3. Open http://localhost:3000 to view the app"
-echo "4. Open http://localhost:8000/docs to view the API documentation"
+echo "1. Run './watch.sh' to start the development servers"
+echo "2. Open http://localhost:3000 to view the app"
+echo "3. Open http://localhost:8000/docs to view the API documentation"
 echo ""
 echo "Optional:"
 echo "- Run './fix.sh' to format your code"
