@@ -404,7 +404,61 @@ Deploy separate instances for dev/staging/prod:
 
 ## Troubleshooting
 
-**Authentication failures:**
+### Deployment Issues - App Created But Code Not Working
+
+If `./deploy.sh` completes successfully but your app doesn't work properly, follow these steps:
+
+**1. Check App Logs (MOST IMPORTANT):**
+```bash
+# View live logs
+databricks apps logs <your-app-name> --follow
+
+# Or visit in browser (requires OAuth):
+# https://your-app.databricksapps.com/logz
+```
+
+**2. Verify App Status:**
+```bash
+./app_status.sh
+# Should show: Status: RUNNING
+# If status is FAILED or ERROR, check logs above
+```
+
+**3. Common Causes & Fixes:**
+
+| Issue | Check | Fix |
+|-------|-------|-----|
+| **Frontend build failed** | `cd client && npm run build` | Fix TypeScript errors, ensure `client/node_modules` exists |
+| **Missing Python dependencies** | `cat requirements.txt` | Run `uv run python scripts/generate_semver_requirements.py` |
+| **app.yaml misconfigured** | `cat app.yaml` | Verify `command` and `scopes` are correct |
+| **Code not uploaded** | `databricks workspace ls /Workspace/Users/your.email@company.com/` | Check if source path exists, redeploy with `--verbose` |
+| **App won't start** | Check app logs | Look for Python import errors, missing env vars, port conflicts |
+
+**4. Redeploy with Verbose Output:**
+```bash
+./deploy.sh --verbose
+# Shows detailed build and deployment steps
+```
+
+**5. Manual Verification:**
+```bash
+# Check app exists and get details
+databricks apps get <your-app-name>
+
+# Verify service principal was created
+databricks apps get <your-app-name> --output json | grep service_principal_id
+
+# Try restarting
+databricks apps restart <your-app-name>
+
+# Last resort: Delete and recreate
+databricks apps delete <your-app-name>
+./deploy.sh --create
+```
+
+---
+
+### Authentication failures:
 - Run: `databricks current-user me` to verify CLI auth
 - Check `.env.local` has correct `DATABRICKS_HOST`
 
