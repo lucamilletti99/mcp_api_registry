@@ -151,8 +151,18 @@ Deploy your application code to Databricks:
 2. ✅ **Packages the backend** - Prepares FastAPI server and MCP tools  
 3. ✅ **Creates Databricks App** - Registers your app in the workspace
 4. ✅ **Generates Service Principal** - Automatically creates a service principal for your app
-5. ✅ **Deploys code** - Uploads and starts your application
-6. ✅ **Enables OAuth (OBO)** - Configures On-Behalf-Of authentication automatically
+5. ✅ **Deploys code to the app** - Uploads your code and automatically attaches it to the app compute
+6. ✅ **Starts the application** - Your app is now running and accessible
+7. ✅ **Enables OAuth (OBO)** - Configures On-Behalf-Of authentication automatically
+
+**⚠️ Important: No manual attachment needed!**
+The `deploy.sh` script handles the entire deployment pipeline. Your code is automatically:
+- Packaged into a deployable artifact
+- Uploaded to Databricks
+- Attached to the app's compute environment  
+- Started and made accessible at the app URL
+
+You don't need to manually connect code to compute - it's all handled by the deployment process!
 
 **Finding your deployed app:**
 
