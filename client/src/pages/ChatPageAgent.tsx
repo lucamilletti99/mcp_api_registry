@@ -115,6 +115,10 @@ export function ChatPageAgent({
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingContent, setEditingContent] = useState<string>("");
+  const [showCredentialDialog, setShowCredentialDialog] = useState(false);
+  const [credentialType, setCredentialType] = useState<"api_key" | "bearer_token">("api_key");
+  const [credentialValue, setCredentialValue] = useState<string>("");
+  const [pendingApiName, setPendingApiName] = useState<string>("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
@@ -413,6 +417,20 @@ export function ChatPageAgent({
         return;
       }
 
+      // Check if response asks for API key or bearer token
+      const responseText = data.response.toLowerCase();
+      const needsApiKey = responseText.includes("api key") && 
+                          (responseText.includes("provide") || responseText.includes("need") || responseText.includes("enter"));
+      const needsBearerToken = responseText.includes("bearer token") && 
+                               (responseText.includes("provide") || responseText.includes("need") || responseText.includes("enter"));
+      
+      // Extract API name if mentioned (simple heuristic)
+      let apiName = "";
+      const apiNameMatch = data.response.match(/(?:register|for|the)\s+([A-Z][a-zA-Z0-9_\s]+?)(?:\s+API|\s+api|endpoint)/i);
+      if (apiNameMatch) {
+        apiName = apiNameMatch[1].trim();
+      }
+
       setMessages((prev) => [
         ...prev,
         {
@@ -422,6 +440,13 @@ export function ChatPageAgent({
           trace_id: data.trace_id,
         },
       ]);
+
+      // Show credential dialog if credentials are needed
+      if (needsApiKey || needsBearerToken) {
+        setCredentialType(needsBearerToken ? "bearer_token" : "api_key");
+        setPendingApiName(apiName);
+        setShowCredentialDialog(true);
+      }
     } catch (error) {
       console.error("Failed to send message:", error);
       setMessages((prev) => prev.slice(0, -1));
@@ -1215,6 +1240,150 @@ export function ChatPageAgent({
                 <li>Conversation history management</li>
               </ul>
             </section>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Secure Credential Input Dialog */}
+      <Dialog open={showCredentialDialog} onOpenChange={setShowCredentialDialog}>
+        <DialogContent className={`sm:max-w-md ${
+          isDark 
+            ? "bg-[#1C3D42] border-white/20 text-white" 
+            : "bg-white border-gray-200 text-gray-900"
+        }`}>
+          <DialogHeader>
+            <DialogTitle className={isDark ? "text-white" : "text-gray-900"}>
+              🔐 Secure Credential Input
+            </DialogTitle>
+            <DialogDescription className={isDark ? "text-white/60" : "text-gray-600"}>
+              {pendingApiName && `For ${pendingApiName} API - `}
+              Enter your {credentialType === "api_key" ? "API Key" : "Bearer Token"} securely. 
+              Your credential will be encrypted and stored in Databricks Secrets.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className={`text-sm font-medium ${isDark ? "text-white" : "text-gray-900"}`}>
+                {credentialType === "api_key" ? "API Key" : "Bearer Token"}
+              </label>
+              <Input
+                type="password"
+                placeholder={credentialType === "api_key" ? "Enter your API key..." : "Enter your bearer token..."}
+                value={credentialValue}
+                onChange={(e) => setCredentialValue(e.target.value)}
+                className={`font-mono ${
+                  isDark
+                    ? "bg-black/20 border-white/20 text-white placeholder:text-white/40"
+                    : "bg-gray-50 border-gray-300 text-gray-900 placeholder:text-gray-400"
+                }`}
+                autoFocus
+              />
+              <p className={`text-xs ${isDark ? "text-white/40" : "text-gray-500"}`}>
+                • Your credential is masked for security
+                <br />
+                • Stored encrypted in Databricks secret scopes
+                <br />
+                • Never logged or displayed in plain text
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCredentialDialog(false);
+                setCredentialValue("");
+              }}
+              className={isDark ? "border-white/20 text-white hover:bg-white/10" : ""}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!credentialValue.trim()) return;
+                
+                // Add credential to message and send
+                const credentialMessage = `My ${credentialType === "api_key" ? "API key" : "bearer token"} is: ${credentialValue}`;
+                setShowCredentialDialog(false);
+                
+                // Send message with credential
+                setInput(credentialMessage);
+                setCredentialValue("");
+                
+                // Automatically send the message
+                const userMessage: Message = {
+                  role: "user",
+                  content: credentialMessage,
+                };
+
+                setMessages((prev) => [...prev, userMessage, {
+                  role: "assistant",
+                  content: "Thinking...",
+                }]);
+                setLoading(true);
+
+                try {
+                  const response = await fetch("/api/agent/chat", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      messages: [...messages.map(m => ({ role: m.role, content: m.content })), userMessage],
+                      model: selectedModel,
+                      system_prompt: systemPrompt || undefined,
+                      warehouse_id: selectedWarehouse || undefined,
+                      catalog_schema: selectedCatalogSchema || undefined,
+                    }),
+                  });
+
+                  const data = await response.json();
+                  setMessages((prev) => prev.slice(0, -1));
+
+                  if (data.detail) {
+                    setMessages((prev) => [
+                      ...prev,
+                      {
+                        role: "assistant",
+                        content: `Error: ${data.detail}`,
+                      },
+                    ]);
+                    return;
+                  }
+
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      role: "assistant",
+                      content: data.response,
+                      tool_calls: data.tool_calls,
+                      trace_id: data.trace_id,
+                    },
+                  ]);
+                } catch (error) {
+                  console.error("Failed to send message:", error);
+                  setMessages((prev) => prev.slice(0, -1));
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      role: "assistant",
+                      content: "Sorry, I encountered an error processing your request.",
+                    },
+                  ]);
+                } finally {
+                  setLoading(false);
+                  setInput("");
+                }
+              }}
+              disabled={!credentialValue.trim()}
+              className={`${
+                isDark
+                  ? "bg-[#2C555C] hover:bg-[#24494F] text-white"
+                  : "bg-blue-600 hover:bg-blue-700 text-white"
+              }`}
+            >
+              Submit Securely
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
