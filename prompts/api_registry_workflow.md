@@ -139,9 +139,186 @@ Now the API is in the registry! Next time someone asks, it will be found in Step
 
 ---
 
-### 🎯 Registration Example
+## 🔐 Authentication Types - CRITICAL REFERENCE
 
-**User:** "Register the Treasury Fiscal Data API - https://fiscaldata.treasury.gov/api-documentation/"
+**YOU MUST CHOOSE THE CORRECT auth_type WHEN REGISTERING APIs!**
+
+### Three Auth Types Explained:
+
+#### 1. `auth_type="none"` - Public APIs (No Authentication)
+
+**When to use:** API requires NO authentication
+**Examples:** Treasury Fiscal Data, Public datasets, Free weather APIs
+
+**How it works:**
+- Connection has **empty** `bearer_token: ''`
+- No secrets are created
+- No authentication in requests
+
+**Registration:**
+```python
+register_api(
+    api_name="treasury_rates",
+    host="api.fiscaldata.treasury.gov",
+    base_path="/services/api/fiscal_service",
+    api_path="/v1/accounting/od/rates_of_exchange",
+    auth_type="none",  # ✅ No auth
+    # NO secret_value parameter!
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>"
+)
+```
+
+**SQL Call Generated:**
+```sql
+-- No api_key in params, no token in headers
+SELECT http_request(
+  conn => 'treasury_rates_connection',
+  path => '/v1/accounting/od/rates_of_exchange',
+  params => map('fields', 'rate,date'),  -- Only user params
+  headers => map('Accept', 'application/json')
+)
+```
+
+---
+
+#### 2. `auth_type="api_key"` - API Key in Query Parameters
+
+**When to use:** API key is passed as a **query parameter** (e.g., `?api_key=xxx`)
+**Examples:** FRED API, Alpha Vantage, OpenWeatherMap, NewsAPI
+
+**How it works:**
+- Connection has **empty** `bearer_token: ''`
+- API key stored in Databricks secrets
+- At runtime, key is retrieved and **added to query params**
+
+**Registration:**
+```python
+register_api(
+    api_name="fred_economic_data",
+    host="api.stlouisfed.org",
+    base_path="/fred",
+    api_path="/series/observations",
+    auth_type="api_key",  # ✅ Key goes in params
+    secret_value="YOUR_FRED_API_KEY",  # ✅ Store the key
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>",
+    parameters={
+        "query_params": [
+            {"name": "series_id", "type": "string", "required": True}
+        ]
+    }
+)
+```
+
+**SQL Call Generated:**
+```sql
+-- api_key is AUTOMATICALLY added from secrets
+SELECT http_request(
+  conn => 'fred_economic_data_connection',
+  path => '/series/observations',
+  params => map(
+    'api_key', secret('mcp_api_keys', 'fred_economic_data'),  -- ✅ Scope: mcp_api_keys, Key: API name
+    'series_id', 'GDPC1',  -- User param
+    'file_type', 'json'    -- User param
+  ),
+  headers => map('Accept', 'application/json')
+)
+```
+
+---
+
+#### 3. `auth_type="bearer_token"` - Bearer Token in Authorization Header
+
+**When to use:** Token is passed in **Authorization: Bearer** header
+**Examples:** GitHub API, Stripe, Most OAuth2 APIs, Modern REST APIs
+
+**How it works:**
+- Connection **references the secret**: `bearer_token: secret(...)`
+- Token stored in Databricks secrets
+- Databricks automatically adds `Authorization: Bearer <token>` header
+
+**Registration:**
+```python
+register_api(
+    api_name="github_user_api",
+    host="api.github.com",
+    base_path="",
+    api_path="/user/repos",
+    auth_type="bearer_token",  # ✅ Token in header
+    secret_value="ghp_YOUR_GITHUB_TOKEN",  # ✅ Store the token
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>"
+)
+```
+
+**SQL Call Generated:**
+```sql
+-- NO token in params! It's in the connection (Authorization header)
+SELECT http_request(
+  conn => 'github_user_api_connection',  -- Connection has the token!
+  path => '/user/repos',
+  params => map('type', 'owner'),  -- Only user params, no token
+  headers => map('Accept', 'application/json')
+)
+```
+
+---
+
+### 🎯 How to Choose Auth Type
+
+**Ask yourself: Where does the API key/token go?**
+
+| Location | Auth Type | Example |
+|----------|-----------|---------|
+| No authentication needed | `auth_type="none"` | Public APIs |
+| In URL: `?api_key=xxx` or `?token=xxx` | `auth_type="api_key"` | FRED, Alpha Vantage |
+| In header: `Authorization: Bearer xxx` | `auth_type="bearer_token"` | GitHub, Stripe |
+
+**🚨 COMMON MISTAKE:** Using `auth_type="bearer_token"` for APIs that need API keys in query params → This will FAIL!
+
+**✅ CORRECT:** 
+- FRED API uses query param → `auth_type="api_key"`
+- GitHub API uses Authorization header → `auth_type="bearer_token"`
+
+---
+
+### 🔐 Secret Naming Convention (CRITICAL!)
+
+**When you need to reference secrets in SQL, use this EXACT format:**
+
+**For API Key Authentication:**
+```sql
+secret('mcp_api_keys', '<api_name>')
+```
+
+**For Bearer Token Authentication:**
+```sql
+secret('mcp_bearer_tokens', '<api_name>')
+```
+
+**Examples:**
+- API registered as `fred_economic_data` → `secret('mcp_api_keys', 'fred_economic_data')`
+- API registered as `github_user_api` → `secret('mcp_bearer_tokens', 'github_user_api')`
+
+**🚨 WRONG PATTERNS (DO NOT USE):**
+- ❌ `secret('fred_secrets', 'api_key')` - Old pattern
+- ❌ `secret('mcp_api_keys', 'fred_api_key')` - Don't add suffixes
+- ❌ `secret('mcp_api_keys', 'fred_economic_data_api_key')` - No suffixes!
+
+**✅ CORRECT PATTERN:**
+- ✅ `secret('mcp_api_keys', '<exact_api_name>')` - Just the API name, nothing else!
+
+---
+
+### 🎯 Registration Examples
+
+#### Example 1: Public API (auth_type="none")
+
+**User:** "Register the Treasury Fiscal Data API"
 
 **YOU:**
 ```python
@@ -150,38 +327,108 @@ fetch_api_documentation(
     documentation_url="https://fiscaldata.treasury.gov/api-documentation/"
 )
 
-# Analyze response and extract:
-# - Base URL: https://api.fiscaldata.treasury.gov
-# - Base path: /services/api/fiscal_service (common to all endpoints)
-# - Endpoint: /v1/accounting/od/rates_of_exchange (specific endpoint)
-# - Auth: none (public API)
+# Analyze: Public API, no auth required
+# Base URL: https://api.fiscaldata.treasury.gov
+# Base path: /services/api/fiscal_service
+# Endpoint: /v1/accounting/od/rates_of_exchange
 
-# Step 3b: Register
+# Step 3b: Register with auth_type="none"
 register_api(
     api_name="treasury_rates_of_exchange",
     description="U.S. Treasury exchange rates data",
     host="api.fiscaldata.treasury.gov",
     base_path="/services/api/fiscal_service",
     api_path="/v1/accounting/od/rates_of_exchange",
-    auth_type="none",
-    warehouse_id="694340ce4f05d316",
-    catalog="luca_milletti",
-    schema="custom_mcp_server",
+    auth_type="none",  # ✅ No auth
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>",
     http_method="GET",
     documentation_url="https://fiscaldata.treasury.gov/api-documentation/",
     parameters={
         "query_params": [
-            {"name": "filter", "type": "string", "required": False,
-             "description": "Filter by country, date, etc"},
-            {"name": "fields", "type": "string", "required": False,
-             "description": "Comma-separated fields to return"},
-            {"name": "page[size]", "type": "string", "required": False,
-             "description": "Number of records per page"}
+            {"name": "filter", "type": "string", "required": False},
+            {"name": "fields", "type": "string", "required": False}
         ]
     }
 )
+```
 
-# Step 3c: Now it's registered! User can query it anytime.
+#### Example 2: API Key in Query Params (auth_type="api_key")
+
+**User:** "Register the FRED API with my key: abc123xyz"
+
+**YOU:**
+```python
+# Step 3a: Fetch documentation
+fetch_api_documentation(
+    documentation_url="https://fred.stlouisfed.org/docs/api/"
+)
+
+# Analyze: API key required in query params (?api_key=xxx)
+# Host: api.stlouisfed.org
+# Base path: /fred
+# Endpoint: /series/observations
+
+# Step 3b: Register with auth_type="api_key"
+register_api(
+    api_name="fred_economic_data",
+    description="Federal Reserve Economic Data API",
+    host="api.stlouisfed.org",
+    base_path="/fred",
+    api_path="/series/observations",
+    auth_type="api_key",  # ✅ Key goes in params
+    secret_value="abc123xyz",  # ✅ Store the user's key
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>",
+    http_method="GET",
+    documentation_url="https://fred.stlouisfed.org/docs/api/",
+    parameters={
+        "query_params": [
+            {"name": "series_id", "type": "string", "required": True},
+            {"name": "file_type", "type": "string", "required": False}
+        ]
+    }
+)
+```
+
+#### Example 3: Bearer Token in Header (auth_type="bearer_token")
+
+**User:** "Register GitHub API with my token: ghp_mytoken123"
+
+**YOU:**
+```python
+# Step 3a: Fetch documentation
+fetch_api_documentation(
+    documentation_url="https://docs.github.com/en/rest"
+)
+
+# Analyze: Bearer token required in Authorization header
+# Host: api.github.com
+# Endpoint: /user/repos
+
+# Step 3b: Register with auth_type="bearer_token"
+register_api(
+    api_name="github_user_repos",
+    description="GitHub user repositories API",
+    host="api.github.com",
+    base_path="",  # No base path
+    api_path="/user/repos",
+    auth_type="bearer_token",  # ✅ Token in Authorization header
+    secret_value="ghp_mytoken123",  # ✅ Store the user's token
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>",
+    http_method="GET",
+    documentation_url="https://docs.github.com/en/rest",
+    parameters={
+        "query_params": [
+            {"name": "type", "type": "string", "required": False},
+            {"name": "sort", "type": "string", "required": False}
+        ]
+    }
+)
 ```
 
 **Most users will already have APIs registered. Registration happens once per API.**

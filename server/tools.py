@@ -120,7 +120,7 @@ def _execute_sql_query(
     result = w.statement_execution.execute_statement(
       warehouse_id=warehouse_id, statement=full_query, wait_timeout='30s'
     )
-    print(f'XXXX Output executing SQL result: {result}')
+    print(f'⛁⛁⛁ Output executing SQL result: {result}')
     # Process results
     if result.result and result.result.data_array:
       columns = [col.name for col in result.manifest.schema.columns]
@@ -291,11 +291,50 @@ def load_tools(mcp_server):
   # ========================================
 
   # Private helper functions for secret management
+  #
+  # PERMISSION MODEL:
+  # The app's service principal (configured in app.yaml with 'secrets' scope)
+  # manages all secrets on behalf of users. Two shared scopes are used:
+  #   - mcp_api_keys: For API key authentication
+  #   - mcp_bearer_tokens: For bearer token authentication
+  #
+  # Setup required (one-time by admin):
+  #   1. Create scopes: ./setup_shared_secrets.sh
+  #   2. Grant WRITE to service principal
+  #   3. Redeploy app: ./deploy.sh
+  #
+  # After setup, users can register APIs with auth through the app UI.
+  # No per-user permissions needed - the service principal handles all secret operations.
+
+  def _get_secrets_client() -> WorkspaceClient:
+    """Get a WorkspaceClient specifically for secrets operations.
+    
+    Uses service principal credentials directly to bypass OAuth token scope limitations.
+    The service principal must have WRITE permission on the secret scopes.
+    """
+    host = os.environ.get('DATABRICKS_HOST')
+    client_id = os.environ.get('DATABRICKS_CLIENT_ID')
+    client_secret = os.environ.get('DATABRICKS_CLIENT_SECRET')
+    
+    if client_id and client_secret:
+      # Use OAuth M2M with service principal credentials
+      print(f"🔐 Using service principal for secrets: {client_id}")
+      config = Config(
+        host=host,
+        client_id=client_id,
+        client_secret=client_secret,
+        auth_type='oauth-m2m'
+      )
+      return WorkspaceClient(config=config)
+    else:
+      # Fallback to default client
+      print(f"⚠️  No service principal credentials found, using default client")
+      return get_workspace_client()
 
   def _create_secret_scope(scope_name: str) -> dict:
     """Create a Databricks secret scope if it doesn't exist."""
     try:
-      w = get_workspace_client()
+      w = _get_secrets_client()
 
       # Check if scope already exists
       try:
@@ -322,7 +361,7 @@ def load_tools(mcp_server):
   def _store_secret(scope_name: str, key_name: str, secret_value: str) -> dict:
     """Store a secret in a Databricks secret scope."""
     try:
-      w = get_workspace_client()
+      w = _get_secrets_client()
       w.secrets.put_secret(scope=scope_name, key=key_name, string_value=secret_value)
       print(f"🔐 Stored secret: {scope_name}/{key_name}")
       return {'success': True, 'scope_name': scope_name, 'key_name': key_name}
@@ -363,21 +402,25 @@ def load_tools(mcp_server):
     base_path '{base_path}'"""
 
     # Handle bearer_token based on auth_type
-    if auth_type == 'bearer_token' and api_name:
+    if auth_type == 'bearer_token':
       # Use secret reference for bearer token auth
-      scope_name = f"{api_name}_secrets"
+      # The bearer token is stored in the connection and automatically used
+      if not api_name:
+        raise ValueError("api_name is required for bearer_token authentication")
+      # Use dedicated bearer token scope with simple API name as key
+      scope_name = os.environ.get('MCP_BEARER_TOKEN_SCOPE', 'mcp_bearer_tokens')
+      secret_key = api_name  # Simple: just the API name
       sql += f""",
-    bearer_token secret('{scope_name}', 'bearer_token')"""
-    elif auth_type == 'api_key' and api_name:
-      # For API key auth, create empty secret scope
-      scope_name = f"{api_name}_secrets"
+    bearer_token secret('{scope_name}', '{secret_key}')"""
+    elif auth_type == 'api_key':
+      # For API key auth, connection has EMPTY bearer_token
+      # The API key is stored in secrets and passed as a param at runtime
       sql += f""",
-    bearer_token secret('{scope_name}', 'bearer_token')"""
+    bearer_token ''"""
     else:
-      # For public APIs (auth_type='none'), use a literal placeholder
-      # Databricks requires bearer_token, but we use 'public' as a non-functional placeholder
+      # For public APIs (auth_type='none'), use empty string
       sql += f""",
-    bearer_token 'public'"""
+    bearer_token ''"""
 
     comment = description or f'HTTP connection for {host}'
     sql += f"""
@@ -473,23 +516,46 @@ def load_tools(mcp_server):
       secret_scope = None
 
       if auth_type in ['api_key', 'bearer_token']:
-        # For authenticated APIs, try to create secret scope
-        scope_name = f"{api_name}_secrets"
-
+        # Use separate scopes for API keys vs bearer tokens for better organization
+        # Scopes should be pre-created by an admin
+        if auth_type == 'api_key':
+          scope_name = os.environ.get('MCP_API_KEY_SCOPE', 'mcp_api_keys')
+          secret_key = api_name  # Simple: just the API name
+        else:  # bearer_token
+          scope_name = os.environ.get('MCP_BEARER_TOKEN_SCOPE', 'mcp_bearer_tokens')
+          secret_key = api_name  # Simple: just the API name
+        
+        # Try to create the scope (will succeed if it doesn't exist and user has perms)
+        # If it fails, we'll try to use it anyway (assuming it was pre-created)
         scope_result = _create_secret_scope(scope_name)
+        
         if not scope_result.get('success'):
-          return {
-            'success': False,
-            'error': f"Failed to create secret scope: {scope_result.get('error')}",
-            'help': 'Secret scope creation requires admin permissions. Please pre-create the secret scope or grant the app secrets management permissions.'
-          }
-
-        # Store the actual secret
-        secret_key = 'bearer_token' if auth_type == 'bearer_token' else 'api_key'
+          print(f"⚠️  Could not create secret scope '{scope_name}': {scope_result.get('error')}")
+          print(f"⚠️  Assuming scope was pre-created by admin. Attempting to store secret...")
+        
         secret_result = _store_secret(scope_name, secret_key, secret_value)
         if not secret_result.get('success'):
-          return {'success': False, 'error': f"Failed to store secret: {secret_result.get('error')}"}
-
+          scope_type = "API keys" if auth_type == 'api_key' else "bearer tokens"
+          return {
+            'success': False,
+            'error': f"Failed to store secret: {secret_result.get('error')}",
+            'help': (
+              f"Secret scope '{scope_name}' (for {scope_type}) may not exist or the app's service principal doesn't have WRITE permission.\n\n"
+              f"Please ask an admin to run the setup script:\n"
+              f"  ./setup_shared_secrets.sh\n\n"
+              f"Or manually:\n"
+              f"1. Create the scope: databricks secrets create-scope {scope_name}\n"
+              f"2. Grant the app's service principal WRITE access:\n"
+              f"   databricks secrets put-acl {scope_name} <app-service-principal-id> WRITE\n"
+              f"3. Redeploy the app: ./deploy.sh\n\n"
+              f"Find your service principal ID: Databricks UI → Compute → Apps → Your App\n\n"
+              f"Or set custom scope names via environment variables:\n"
+              f"  - MCP_API_KEY_SCOPE (current: {os.environ.get('MCP_API_KEY_SCOPE', 'mcp_api_keys')})\n"
+              f"  - MCP_BEARER_TOKEN_SCOPE (current: {os.environ.get('MCP_BEARER_TOKEN_SCOPE', 'mcp_bearer_tokens')})"
+            )
+          }
+        
+        print(f"✅ Stored secret in {auth_type} scope: {scope_name}/{secret_key}")
         secret_scope = scope_name
       # For public APIs (auth_type='none'), we don't create secrets at all
 
@@ -1311,7 +1377,9 @@ VALUES (
       if auth_type == 'api_key':
         if not secret_scope:
           return {'success': False, 'error': 'API key auth configured but no secret scope found'}
-        param_entries.append(f"'api_key', secret('{secret_scope}', 'api_key')")
+        # Use the secret scope from database (stored during registration)
+        secret_key = api_name  # Simple: just the API name
+        param_entries.append(f"'api_key', secret('{secret_scope}', '{secret_key}')")
 
       # Add user-provided parameters
       for key, value in provided_params.items():

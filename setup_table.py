@@ -62,7 +62,7 @@ def setup_api_registry_table(catalog: str, schema: str, warehouse_id: str = None
             sys.exit(1)
 
     # Read SQL template
-    sql_file = os.path.join(os.path.dirname(__file__), 'setup_api_registry_table.sql')
+    sql_file = os.path.join(os.path.dirname(__file__), 'setup_api_http_registry_table.sql')
     with open(sql_file, 'r') as f:
         sql_template = f.read()
 

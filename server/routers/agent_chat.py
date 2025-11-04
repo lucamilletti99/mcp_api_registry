@@ -107,16 +107,24 @@ async def load_mcp_tools_cached(force_reload: bool = False) -> List[Dict[str, An
     # Convert to OpenAI format
     openai_tools = []
     for tool in mcp_tools.values():
+        # Extract parameter schema from the tool
+        # FastMCP tools have an inputSchema property
+        parameters_schema = {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+        
+        if hasattr(tool, 'inputSchema') and tool.inputSchema:
+            # Use the tool's actual input schema
+            parameters_schema = tool.inputSchema
+        
         openai_tool = {
             "type": "function",
             "function": {
                 "name": tool.key,
                 "description": tool.description or tool.key,
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }
+                "parameters": parameters_schema
             }
         }
         openai_tools.append(openai_tool)

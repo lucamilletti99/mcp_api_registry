@@ -1,16 +1,18 @@
 # 🔌 API Registry MCP Server
 
-A Databricks app that helps you discover, register, and manage external API endpoints with an AI-powered chat interface and MCP server.
+A Databricks app that helps you discover, register, and manage external API endpoints with an AI-powered chat interface.
 
 ## What is this?
 
-This is a complete API discovery and management platform that runs on Databricks Apps. It combines:
+An API discovery and management platform that runs on Databricks Apps:
 
-- **🤖 AI Chat Interface**: Natural language API registration powered by Claude
+- **🤖 AI Chat Interface**: Register APIs using natural language powered by Claude
 - **📊 API Registry**: Database-backed catalog of external API endpoints
-- **🔍 Smart Discovery**: Automatic endpoint testing and validation
-- **📚 Documentation Parser**: Extract endpoints from API documentation URLs
+- **🔐 Secure Auth**: Support for public APIs, API keys, and bearer tokens
 - **🛠️ MCP Server**: Programmatic API management tools
+- **📚 Smart Discovery**: Automatic endpoint testing and documentation parsing
+
+---
 
 ## Quick Start
 
@@ -18,335 +20,196 @@ This is a complete API discovery and management platform that runs on Databricks
 
 **Workspace Requirements:**
 - Databricks Apps enabled (Public Preview)
-- Foundation Model API with `databricks-claude-sonnet-4` endpoint
-- **At least one SQL Warehouse** (required for table operations and MCP tools)
-  - [How to create a SQL Warehouse](https://docs.databricks.com/en/compute/sql-warehouse/create.html)
-  - Serverless SQL Warehouses recommended for best performance
-- Unity Catalog with an accessible catalog.schema
+- Foundation Model API with a tool-enabled model endpoint
+- At least one SQL Warehouse ([create one](https://docs.databricks.com/en/compute/sql-warehouse/create.html))
+- Unity Catalog access
 
-See [WORKSPACE_REQUIREMENTS.md](WORKSPACE_REQUIREMENTS.md) for detailed workspace setup requirements and troubleshooting.
-
-**Local Development:**
+**Local Machine:**
 - Python 3.12+ with `uv` package manager
-- Databricks CLI (`databricks`) v0.260.0+
+- Databricks CLI v0.260.0+
 
-**Authentication Setup:**
-- **Recommended:** Personal Access Token (PAT) authentication
-- [How to create a Personal Access Token](https://docs.databricks.com/en/dev-tools/auth/pat.html)
-- You'll need your PAT during the setup process
+📖 **Detailed requirements:** [WORKSPACE_REQUIREMENTS.md](WORKSPACE_REQUIREMENTS.md)
 
-### 1. Clone and Setup
+---
 
-**Note:** All deployment commands run on your LOCAL machine, not in Databricks.
+### Step 1: Clone and Setup
+
+Run this on your **local machine** (not in Databricks):
 
 ```bash
-# On your local machine (not in Databricks):
 git clone https://github.com/lucamilletti99/mcp_server_api_registry.git
 cd mcp_server_api_registry
-
-# Run interactive setup
-# When prompted, press Enter to use default values shown in brackets
-./setup.sh
+./setup.sh  # Interactive - press Enter to use defaults
 ```
 
-**Setup Tips:**
-- Use **Personal Access Token (PAT)** authentication when prompted
-- Press Enter to accept default values (shown in brackets)
-- Default source code path: `/Workspace/Users/your-email@company.com/app-name`
-- MCP server name will default to your app name
+This installs dependencies, configures Databricks CLI, and creates `.env.local` with your settings.
 
-This will:
-- Install `uv` if not present (on your local machine)
-- Configure Databricks CLI authentication
-- **Configure your app name** (must start with `mcp-`)
-- Install all Python dependencies locally
-- Create `.env.local` configuration file
+---
 
-**Important:** The app name you choose during setup will be saved in `.env.local` and used automatically by `./deploy.sh`. You can override it at deployment time with the `--app-name` flag if needed.
-
-### 2. Create the API Registry Table
-
-**IMPORTANT: Make sure you completed step 1 (./setup.sh) before proceeding!**
-
-**Prerequisites for this step:**
-- ✅ You must have at least one SQL Warehouse created in your workspace
-- ✅ The warehouse must be running or available to start
-- 📖 [How to create a SQL Warehouse](https://docs.databricks.com/en/compute/sql-warehouse/create.html)
-
-The app needs a table to store registered APIs. You can create it using either method:
-
-**Option 1: Using the Python Script (Recommended)**
+### Step 2: Create the API Registry Table
 
 ```bash
-# The script automatically loads your .env.local configuration
 uv run python setup_table.py your_catalog your_schema
-
-# Optional: specify a warehouse ID
-uv run python setup_table.py your_catalog your_schema --warehouse-id abc123
 ```
 
-**Option 2: Manually via Databricks SQL Editor**
+Or manually run the SQL from `setup_api_registry_table.sql` in Databricks SQL Editor.
 
-You can also run the SQL directly in Databricks:
+---
 
-1. Open the [Databricks SQL Editor](https://docs.databricks.com/en/sql/user/queries/index.html) in your workspace
-2. Copy the contents of `setup_api_registry_table.sql`
-3. Replace `{catalog}` with your catalog name (e.g., `lucam_ws_demo`)
-4. Replace `{schema}` with your schema name (e.g., `custom_mcp_server`)
-5. Run the query
+### Step 3: Setup Secret Scopes (For Authenticated APIs)
 
-```sql
--- Example SQL (replace placeholders):
-CREATE TABLE IF NOT EXISTS your_catalog.your_schema.api_registry (
-  api_id STRING NOT NULL,
-  api_name STRING NOT NULL,
-  description STRING,
-  api_endpoint STRING NOT NULL,
-  documentation_url STRING,
-  http_method STRING,
-  auth_type STRING,
-  token_info STRING,
-  request_params STRING,
-  status STRING,
-  validation_message STRING,
-  user_who_requested STRING,
-  created_at TIMESTAMP,
-  modified_date TIMESTAMP,
-  CONSTRAINT api_registry_pk PRIMARY KEY (api_id)
-)
-COMMENT 'Registry of external API endpoints for discovery and management'
-TBLPROPERTIES (
-  'delta.enableChangeDataFeed' = 'true'
-);
-```
+**Skip if you only use public APIs with no authentication.**
 
-**What the Python script does:**
-- ✅ Automatically loads `DATABRICKS_HOST` from `.env.local`
-- ✅ Auto-detects and uses an available SQL warehouse
-- ✅ Creates the `api_registry` table with proper schema
-- ✅ Verifies the table was created successfully
-
-**Troubleshooting:**
-- **"DATABRICKS_HOST not set"** → Run `./setup.sh` first
-- **"No SQL warehouses found"** → Create one using [this guide](https://docs.databricks.com/en/compute/sql-warehouse/create.html)
-- **"Permission denied"** → Ensure you have `CAN_USE` permission on the warehouse
-- You can also manually run the SQL from `setup_api_registry_table.sql` in Databricks SQL Editor
-
-### 3. Deploy to Databricks
-
-Deploy from your local machine to Databricks Apps.
-
-**First Deployment (App doesn't exist yet)**
-
-Create and deploy the app in one step:
+For APIs with API keys or bearer tokens, you need a **one-time admin setup**:
 
 ```bash
-# First time deployment - creates the app and deploys
+./setup_shared_secrets.sh
+# When prompted, enter your app's service principal ID
+```
+
+**What this does:**
+- Creates two shared scopes: `mcp_api_keys` and `mcp_bearer_tokens`
+- Grants your app's service principal WRITE access
+- That's it! Users can now register authenticated APIs through the app
+
+**Where to find your service principal ID:**
+1. Go to Databricks workspace → Compute → Apps
+2. Click on your app → Look for "Service Principal ID"
+
+**Why this works:**
+- The app's service principal manages all secrets
+- No per-user permissions needed
+- Users interact through the app UI only
+
+📖 **Detailed guide:** [SECRETS_WORKAROUND.md](SECRETS_WORKAROUND.md)
+
+---
+
+### Step 4: Deploy to Databricks
+
+```bash
+# First time:
 ./deploy.sh --create
 
-# OR with a custom app name
-./deploy.sh --app-name mcp-my-api-registry --create
-```
-
-The `--create` flag:
-- Creates the Databricks App if it doesn't exist
-- Then deploys your code to it
-- **Use this for your very first deployment**
-
-**Subsequent Deployments (App already exists)**
-
-After the app is created, just deploy updates:
-
-```bash
-# Update existing app with latest code
+# Updates:
 ./deploy.sh
-
-# OR update with verbose output for debugging
-./deploy.sh --verbose
 ```
 
-**Common Deployment Scenarios:**
+Your app will be at: `https://your-app-name.databricksapps.com`
 
-```bash
-# First time: Create app with default name from .env.local
-./deploy.sh --create
+**App Naming:** Must start with `mcp-` (e.g., `mcp-api-registry`, `mcp-prod-registry`)
 
-# First time: Create app with custom name
-./deploy.sh --app-name mcp-prod-registry --create
+---
 
-# Update existing app after code changes
-./deploy.sh
+## API Authentication Types
 
-# Deploy to different app name (must exist already)
-./deploy.sh --app-name mcp-dev-registry
+The app supports three authentication types:
 
-# Debug deployment issues
-./deploy.sh --verbose
+| Type | When to Use | Where Credential Goes | Example APIs |
+|------|-------------|----------------------|--------------|
+| **none** | Public APIs with no auth | N/A | Treasury, Public datasets |
+| **api_key** | Key passed as query param | `?api_key=xxx` in URL | FRED, Alpha Vantage, NewsAPI |
+| **bearer_token** | Token passed in header | `Authorization: Bearer xxx` | GitHub, Stripe, Shopify |
+
+### Quick Examples
+
+**Public API (no auth):**
+```
+"Register the Treasury Fiscal Data API at 
+https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/rates_of_exchange"
 ```
 
-**App Naming Rules:**
-- App names **must start with `mcp-`**
-- Use lowercase letters, numbers, and hyphens only
-- Examples: `mcp-api-registry`, `mcp-prod-registry`, `mcp-dev-1`
-
-**What the deployment script does:**
-1. Shows configuration summary
-2. Validates the app name (must start with `mcp-`)
-3. Builds the frontend
-4. Packages the Python backend
-5. Uploads everything to your Databricks workspace
-6. Deploys as a Databricks App
-
-Your app will be available at: `https://your-app.databricksapps.com`
-
-**Troubleshooting:**
-- **"App not found"** → Use `--create` flag to create it first
-- **Build errors** → Use `--verbose` to see detailed output
-- **Authentication failed** → Run `./setup.sh` to reconfigure
-
-### 4. Access Your App
-
-Once deployed, your app will be available at the URL shown in the deployment output:
-
+**API Key Authentication:**
 ```
-✅ Deployment complete!
-
-Your app is available at:
-https://your-app.databricksapps.com
+"Register the FRED API at https://api.stlouisfed.org/fred/series/observations
+Use API key authentication with key: YOUR_API_KEY_HERE"
 ```
 
-Open this URL in your browser to access the web interface and start registering APIs!
+**Bearer Token Authentication:**
+```
+"Register the GitHub API at https://api.github.com/user/repos
+Use bearer token authentication with token: ghp_YOUR_TOKEN_HERE"
+```
 
-## Features
+### How It Works
 
-### Web UI
+**API Key Auth:**
+- Key stored in `mcp_api_keys` scope
+- HTTP connection has empty bearer_token
+- Key retrieved from secrets and added to params at runtime
 
-Access the web interface at your app URL:
+**Bearer Token Auth:**
+- Token stored in `mcp_bearer_tokens` scope
+- HTTP connection references the secret
+- Databricks automatically adds `Authorization: Bearer <token>` header
 
-1. **Chat Playground**: AI-powered API registration
-   - Natural language: "Register the Alpha Vantage stock API"
-   - Automatic endpoint discovery and testing
-   - Documentation URL parsing
-   - Smart pattern matching
+📖 **Detailed auth mechanics:** See "API Authentication Types" section in [SECRETS_WORKAROUND.md](SECRETS_WORKAROUND.md)
 
-2. **API Registry**: View and manage registered APIs
-   - Edit API details and documentation URLs
-   - Test API health
-   - Delete APIs
-   - Filter and search
+---
 
-3. **MCP Info**: View available MCP tools and prompts
-   - See all exposed tools
-   - Copy setup instructions
-   - View architecture diagram
+## Using the App
 
-4. **Traces**: Debug AI agent execution
-   - View tool calls and responses
-   - Inspect trace details
-   - Monitor performance
+### Web Interface
 
-### Backend Capabilities
+Open your app URL to access:
 
-The app provides programmatic tools via its MCP server interface:
+1. **Chat Playground** - Natural language API registration and queries
+2. **API Registry** - View, edit, delete registered APIs
+3. **Traces** - Debug AI agent execution
+4. **MCP Info** - View available MCP tools
 
-- **Smart API Registration**: One-step API registration with automatic discovery
-- **Manual Registration**: Detailed API configuration and registration
-- **Registry Management**: List and manage all registered APIs
-- **Documentation Discovery**: Extract endpoints from API documentation URLs
-- **Endpoint Testing**: Validate and test API endpoints with custom headers
-- **SQL Integration**: Run SQL queries against Databricks warehouses
-- **Warehouse Management**: List and configure SQL warehouses
+### Example Workflow
+
+```
+You: "Register the FRED economic data API with my API key: abc123"
+AI: ✅ Successfully registered "fred" with API key authentication
+
+You: "Get GDP data from FRED, series GDPC1"
+AI: [Retrieves API key from secrets, makes request]
+    Here's the GDP data from the last 10 observations...
+```
+
+---
 
 ## Configuration
 
 ### Environment Variables (`.env.local`)
 
+Created automatically by `./setup.sh`:
+
 ```bash
 DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-DATABRICKS_TOKEN=your-personal-access-token  # For local development
-DATABRICKS_SQL_WAREHOUSE_ID=your-warehouse-id  # Optional default warehouse
+DATABRICKS_TOKEN=your-personal-access-token  # For local dev
+DATABRICKS_SQL_WAREHOUSE_ID=your-warehouse-id  # Optional
+
+# Optional: Override default secret scope names
+MCP_API_KEY_SCOPE=mcp_api_keys
+MCP_BEARER_TOKEN_SCOPE=mcp_bearer_tokens
 ```
 
-### App Configuration (`app.yaml`)
+### Authentication
 
-The app is pre-configured with On-Behalf-Of (OBO) authentication:
+The app uses **On-Behalf-Of (OBO) authentication** by default:
+- Users authenticate with Databricks OAuth
+- All operations run with the user's permissions
+- Proper access control and audit logging
 
-```yaml
-# On-Behalf-Of user authorization is enabled by default
-# The app acts with the identity of the authenticated user
-scopes:
-  - "all-apis"     # Foundation Model API access
-  - "sql"          # SQL warehouse and query execution
-  - "files.files"  # DBFS file operations
-```
+📖 **OBO details:** See `app.yaml` configuration in the project root
 
-**What this means:**
-- ✅ **OBO is enabled by default** - no additional setup needed
-- ✅ Users authenticate with their Databricks credentials when accessing the app
-- ✅ All operations run with the user's permissions (not a service principal)
-- ✅ Proper access control and audit logging
-
-**Verifying OBO in the UI:**
-
-After deploying, you can verify OBO is working:
-
-1. Open your deployed app URL in a browser
-2. You'll be prompted to authenticate with Databricks (OAuth)
-3. Once logged in, the app will show your user identity
-4. All API operations will run with your permissions
-
-**Alternative: Service Principal Fallback**
-
-If a user doesn't have SQL warehouse access, the app automatically falls back to using a service principal for database operations while still maintaining user context for other operations.
-
-## Deployment Tips
-
-### Multiple Deployments
-
-You can deploy multiple instances of the app for different purposes (dev, staging, prod):
-
-```bash
-# Development instance
-./deploy.sh --app-name mcp-dev-api-registry --create
-
-# Staging instance
-./deploy.sh --app-name mcp-staging-api-registry --create
-
-# Production instance
-./deploy.sh --app-name mcp-prod-api-registry --create
-```
-
-Each deployment will have its own:
-- Unique URL
-- Independent database (if using different catalogs/schemas)
-- Separate authentication scope
-- Isolated API registry data
-
-### Best Practices
-
-- **Use descriptive names**: `mcp-{environment}-{purpose}` (e.g., `mcp-prod-customer-apis`)
-- **Test with `--verbose`**: See detailed deployment logs if something fails
-- **Use `--create`**: Automatically creates the app if it doesn't exist
-- **Keep names short**: Easier to reference in MCP setup commands
+---
 
 ## Development
 
 ### Local Development
 
 ```bash
-# Start dev server (frontend + backend with hot reload)
+# Start dev server with hot reload
 ./watch.sh
 
 # Access at:
 # - Frontend: http://localhost:5173
 # - Backend: http://localhost:8000
 # - API Docs: http://localhost:8000/docs
-```
-
-### Code Formatting
-
-```bash
-./fix.sh  # Format Python (ruff) and TypeScript (prettier)
 ```
 
 ### Debugging
@@ -358,108 +221,108 @@ Each deployment will have its own:
 # Stream app logs
 uv run python dba_logz.py https://your-app.databricksapps.com --duration 60
 
-# Test API endpoints
-uv run python dba_client.py https://your-app.databricksapps.com /api/user/me
+# Format code
+./fix.sh
 ```
+
+### Multiple Environments
+
+Deploy separate instances for dev/staging/prod:
+
+```bash
+./deploy.sh --app-name mcp-dev-registry --create
+./deploy.sh --app-name mcp-prod-registry --create
+```
+
+---
 
 ## Project Structure
 
 ```
-├── server/                     # FastAPI backend
-│   ├── app.py                 # Main application + MCP server
-│   ├── tools.py               # MCP tools implementation
-│   └── routers/               # API endpoints
-│       ├── agent_chat.py      # AI chat endpoint
-│       ├── registry.py        # API registry CRUD
-│       └── db_resources.py    # Databricks resources
-├── client/                    # React TypeScript frontend
-│   └── src/
-│       ├── pages/             # Page components
-│       └── components/        # Reusable UI components
-├── prompts/                   # MCP prompts (markdown)
-├── dba_mcp_proxy/            # MCP proxy for Claude CLI
-├── setup_table.py            # Database table setup script
-├── setup_api_registry_table.sql  # Table schema
-├── deploy.sh                 # Deploy to Databricks Apps
-├── watch.sh                  # Local development server
-└── pyproject.toml           # Python dependencies
+├── server/                   # FastAPI backend
+│   ├── app.py               # Main app + MCP server
+│   ├── tools.py             # MCP tools implementation
+│   └── routers/             # API endpoints
+├── client/                  # React TypeScript frontend
+│   └── src/pages/           # Chat, Registry, Traces pages
+├── prompts/                 # Agent system prompts
+├── setup_table.py           # DB table setup script
+├── deploy.sh                # Deploy to Databricks Apps
+├── setup.sh                 # Interactive setup
+└── watch.sh                 # Local dev server
 ```
 
-## Authentication
-
-The app uses **On-Behalf-Of (OBO) authentication**:
-- User's OAuth token is forwarded from Databricks Apps
-- Falls back to service principal if user has no SQL warehouse access
-- All operations run with proper user context
-
-## Usage Examples
-
-### Registering an API via Chat
-
-```
-User: Register the Alpha Vantage stock API, here's the docs: https://www.alphavantage.co/documentation/
-
-AI: I'll register the Alpha Vantage API for you.
-[Fetches documentation, discovers endpoints, tests them, registers the best one]
-
-✅ Successfully registered "alphavantage_stock" with validation: HTTP 200 OK
-```
-
-### Discovering New Endpoints
-
-```
-User: Can you check the SEC API documentation and find more endpoints?
-
-AI: Let me review the SEC API documentation for new endpoints.
-[Fetches stored documentation URL, parses it, tests discovered endpoints]
-
-Found 5 working endpoints:
-1. /search/filings
-2. /company/{CIK}
-3. /facts/{CIK}
-...
-```
-
-### Querying the Registry
-
-```
-User: Show me all registered APIs
-
-AI: Here are your registered APIs:
-- alphavantage_stock: Alpha Vantage stock market data
-- fred_series_api: Federal Reserve Economic Data
-- sec_api: SEC filings and company data
-...
-```
+---
 
 ## Troubleshooting
 
-**For detailed workspace requirements and setup issues, see [WORKSPACE_REQUIREMENTS.md](WORKSPACE_REQUIREMENTS.md)**
-
-**Table not found error:**
-- Create the `api_registry` table in your selected catalog.schema
-- Or use a different catalog.schema that has the table
-
 **Authentication failures:**
-- Ensure Databricks CLI is authenticated: `databricks current-user me`
+- Run: `databricks current-user me` to verify CLI auth
 - Check `.env.local` has correct `DATABRICKS_HOST`
 
+**Table not found:**
+- Run `setup_table.py` or manually create via SQL Editor
+
+**Secret scope errors:**
+```bash
+# Verify scopes exist:
+databricks secrets list-scopes | grep mcp_
+
+# Verify service principal has access:
+databricks secrets get-acl --scope mcp_api_keys --principal <service-principal-id>
+
+# Check what secrets exist:
+databricks secrets list-secrets --scope mcp_api_keys
+```
+
 **App not accessible:**
-- Verify app is deployed: `./app_status.sh`
-- Check app logs: Visit `https://your-app.databricksapps.com/logz` in browser
-- Ensure you have network access to the workspace
+- Check deployment: `./app_status.sh`
+- View logs: `https://your-app.databricksapps.com/logz`
 
-**API registration failing:**
-- Check app logs: `uv run python dba_logz.py YOUR_APP_URL --search "ERROR"`
-- Verify warehouse has access to required catalogs
-- Try manual registration with `register_api_in_registry`
+**API calls failing after registration:**
+- Verify secret exists: `databricks secrets list-secrets --scope mcp_api_keys`
+- Check app logs for connection creation errors
+- For API key auth: Ensure key is in `mcp_api_keys` scope
+- For bearer token auth: Ensure token is in `mcp_bearer_tokens` scope
 
-**Databricks Apps not enabled:**
-- See [WORKSPACE_REQUIREMENTS.md](WORKSPACE_REQUIREMENTS.md) for enabling preview features
+📖 **Detailed troubleshooting:**
+- [WORKSPACE_REQUIREMENTS.md](WORKSPACE_REQUIREMENTS.md) - Workspace setup issues
+- [SECRETS_WORKAROUND.md](SECRETS_WORKAROUND.md) - Secret scope issues
 
-**Foundation Model endpoint errors:**
-- Verify `databricks-claude-sonnet-4` is available in your region
-- Check [WORKSPACE_REQUIREMENTS.md](WORKSPACE_REQUIREMENTS.md) for regional availability
+---
+
+## Key Features
+
+### MCP Tools Available
+
+The app exposes these tools via its MCP server:
+
+- `smart_register_api` - One-step API registration with auto-discovery
+- `register_api_in_registry` - Manual API registration with full control
+- `check_api_http_registry` - List and search registered APIs
+- `discover_endpoints_from_docs` - Extract endpoints from documentation URLs
+- `test_api_endpoint` - Validate endpoints before registration
+- `execute_dbsql` - Run SQL queries against warehouses
+
+### AI Agent Capabilities
+
+The chat interface can:
+- Parse API documentation to discover endpoints
+- Test endpoints automatically
+- Register APIs with proper authentication
+- Call registered APIs to answer queries
+- Combine multiple API calls for complex requests
+
+---
+
+## Documentation
+
+- [WORKSPACE_REQUIREMENTS.md](WORKSPACE_REQUIREMENTS.md) - Prerequisites, setup, workspace configuration
+- [SECRETS_WORKAROUND.md](SECRETS_WORKAROUND.md) - Secret management, auth types, troubleshooting
+- [SECURITY.md](SECURITY.md) - Security policies
+- [LICENSE.md](LICENSE.md) - License information
+
+---
 
 ## License
 
@@ -467,4 +330,4 @@ See [LICENSE.md](LICENSE.md)
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for reporting security vulnerabilities.
+Report vulnerabilities: See [SECURITY.md](SECURITY.md)
