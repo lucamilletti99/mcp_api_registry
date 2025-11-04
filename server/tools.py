@@ -423,9 +423,11 @@ def load_tools(mcp_server):
     bearer_token ''"""
 
     comment = description or f'HTTP connection for {host}'
+    # Escape single quotes in comment to prevent SQL syntax errors
+    comment_escaped = comment.replace("'", "''")
     sql += f"""
   )
-  COMMENT '{comment}';"""
+  COMMENT '{comment_escaped}';"""
     return sql
 
   def _execute_create_connection_sql(sql: str, warehouse_id: str, catalog: str, schema: str) -> dict:
