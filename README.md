@@ -37,8 +37,8 @@ An API discovery and management platform that runs on Databricks Apps:
 Run this on your **local machine** (not in Databricks):
 
 ```bash
-git clone https://github.com/lucamilletti99/mcp_api_registry.git
-cd mcp_api_registry
+git clone https://github.com/lucamilletti99/mcp_api_registry_http.git
+cd mcp_api_registry_http
 ./setup.sh  # Interactive - press Enter to use defaults
 ```
 
@@ -47,7 +47,7 @@ This installs dependencies, configures Databricks CLI, and creates `.env.local` 
 ---
 
 ### Step 2: Create the API Registry Table
-
+**Note: Please create a catalog and schema prior to this step**
 ```bash
 uv run python setup_table.py your_catalog your_schema
 ```
