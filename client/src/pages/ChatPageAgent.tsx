@@ -170,27 +170,40 @@ export function ChatPageAgent({
 
   const fetchWarehouses = async () => {
     try {
+      console.log("🔍 Fetching warehouses...");
       const data = await DatabaseService.listWarehousesApiDbWarehousesGet();
+      console.log("✅ Warehouses data:", data);
       setWarehouses(data.warehouses || []);
       // Set first warehouse as default if available
       if (data.warehouses && data.warehouses.length > 0) {
+        console.log(`📊 Setting default warehouse: ${data.warehouses[0].name} (${data.warehouses[0].id})`);
         setSelectedWarehouse(data.warehouses[0].id);
+      } else {
+        console.warn("⚠️ No warehouses returned from API");
       }
     } catch (error) {
-      console.error("Failed to fetch warehouses:", error);
+      console.error("❌ Failed to fetch warehouses:", error);
+      // Show a toast or error message to user
+      setWarehouses([]);
     }
   };
 
   const fetchCatalogSchemas = async () => {
     try {
+      console.log("🔍 Fetching catalog schemas...");
       const data = await DatabaseService.listAllCatalogSchemasApiDbCatalogSchemasGet();
+      console.log("✅ Catalog schemas data:", data);
       setCatalogSchemas(data.catalog_schemas || []);
       // Set first catalog.schema as default if available
       if (data.catalog_schemas && data.catalog_schemas.length > 0) {
+        console.log(`📊 Setting default catalog.schema: ${data.catalog_schemas[0].full_name}`);
         setSelectedCatalogSchema(data.catalog_schemas[0].full_name);
+      } else {
+        console.warn("⚠️ No catalog schemas returned from API");
       }
     } catch (error) {
-      console.error("Failed to fetch catalog schemas:", error);
+      console.error("❌ Failed to fetch catalog schemas:", error);
+      setCatalogSchemas([]);
     }
   };
 
