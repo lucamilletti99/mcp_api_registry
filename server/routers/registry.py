@@ -115,8 +115,9 @@ async def list_apis(
     try:
         ws = get_workspace_client(request)
 
-        # Build fully-qualified table name
-        table_name = f'{catalog}.{schema}.api_http_registry'
+        # Build fully-qualified table name with proper backtick quoting
+        # Backticks handle catalogs/schemas with special characters (e.g., -f.default)
+        table_name = f'`{catalog}`.`{schema}`.`api_http_registry`'
 
         # Query the registry table
         query = f"""
@@ -233,8 +234,8 @@ async def update_api(
     try:
         ws = get_workspace_client(request)
 
-        # Build fully-qualified table name
-        table_name = f'{catalog}.{schema}.api_http_registry'
+        # Build fully-qualified table name with proper backtick quoting
+        table_name = f'`{catalog}`.`{schema}`.`api_http_registry`'
 
         # NOTE: This endpoint needs redesign for UC HTTP Connections architecture
         # For now, just update basic metadata fields
@@ -304,8 +305,8 @@ async def delete_api(
     try:
         ws = get_workspace_client(request)
 
-        # Build fully-qualified table name
-        table_name = f'{catalog}.{schema}.api_http_registry'
+        # Build fully-qualified table name with proper backtick quoting
+        table_name = f'`{catalog}`.`{schema}`.`api_http_registry`'
 
         # Delete query
         query = f"""
