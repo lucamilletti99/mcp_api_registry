@@ -97,9 +97,16 @@ export function ChatPageAgent({
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [warehouseFilter, setWarehouseFilter] = useState<string>("");
   const [debouncedWarehouseFilter, setDebouncedWarehouseFilter] = useState<string>("");
-  const [catalogSchemas, setCatalogSchemas] = useState<CatalogSchema[]>([]);
-  const [catalogSchemaFilter, setCatalogSchemaFilter] = useState<string>("");
-  const [debouncedCatalogSchemaFilter, setDebouncedCatalogSchemaFilter] = useState<string>("");
+  
+  // TWO-DROPDOWN ARCHITECTURE: Separate catalog and schema
+  const [catalogs, setCatalogs] = useState<{name: string; comment?: string}[]>([]);
+  const [schemas, setSchemas] = useState<{name: string; comment?: string}[]>([]);
+  const [selectedCatalog, setSelectedCatalog] = useState<string>("");
+  const [selectedSchema, setSelectedSchema] = useState<string>("");
+  const [catalogFilter, setCatalogFilter] = useState<string>("");
+  const [schemaFilter, setSchemaFilter] = useState<string>("");
+  const [debouncedCatalogFilter, setDebouncedCatalogFilter] = useState<string>("");
+  const [debouncedSchemaFilter, setDebouncedSchemaFilter] = useState<string>("");
   const [tableValidation, setTableValidation] = useState<{
     exists: boolean;
     error?: string;
@@ -123,37 +130,79 @@ export function ChatPageAgent({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
 
-  // Server-side search with debounce
+  // Sync separate catalog + schema to parent's combined state
+  useEffect(() => {
+    if (selectedCatalog && selectedSchema) {
+      const combined = `${selectedCatalog}.${selectedSchema}`;
+      if (combined !== selectedCatalogSchema) {
+        setSelectedCatalogSchema(combined);
+      }
+    }
+  }, [selectedCatalog, selectedSchema]);
+
+  // Parse parent's combined state on mount/change
+  useEffect(() => {
+    if (selectedCatalogSchema && selectedCatalogSchema.includes('.')) {
+      const [catalog, schema] = selectedCatalogSchema.split('.');
+      if (catalog !== selectedCatalog) setSelectedCatalog(catalog);
+      if (schema !== selectedSchema) setSelectedSchema(schema);
+    }
+  }, [selectedCatalogSchema]);
+
+  // Fetch schemas when catalog changes
+  useEffect(() => {
+    if (selectedCatalog) {
+      fetchSchemas(selectedCatalog);
+    } else {
+      setSchemas([]);
+      setSelectedSchema("");
+    }
+  }, [selectedCatalog]);
+
+  // Server-side search with debounce - WAREHOUSES
   useEffect(() => {
     const timer = setTimeout(() => {
       if (warehouseFilter !== debouncedWarehouseFilter) {
         setDebouncedWarehouseFilter(warehouseFilter);
-        // Trigger server-side fetch with filter
         fetchWarehouses(warehouseFilter);
       }
     }, 750);
     return () => clearTimeout(timer);
   }, [warehouseFilter]);
 
+  // Server-side search with debounce - CATALOGS
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (catalogSchemaFilter !== debouncedCatalogSchemaFilter) {
-        setDebouncedCatalogSchemaFilter(catalogSchemaFilter);
-        // Trigger server-side fetch with filter
-        fetchCatalogSchemas(catalogSchemaFilter);
+      if (catalogFilter !== debouncedCatalogFilter) {
+        setDebouncedCatalogFilter(catalogFilter);
+        fetchCatalogs(catalogFilter);
       }
     }, 750);
     return () => clearTimeout(timer);
-  }, [catalogSchemaFilter]);
+  }, [catalogFilter]);
+
+  // Server-side search with debounce - SCHEMAS
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (schemaFilter !== debouncedSchemaFilter) {
+        setDebouncedSchemaFilter(schemaFilter);
+        if (selectedCatalog) {
+          fetchSchemas(selectedCatalog, schemaFilter);
+        }
+      }
+    }, 750);
+    return () => clearTimeout(timer);
+  }, [schemaFilter]);
 
   // No client-side filtering needed - using server-side filtering
   const filteredWarehouses = warehouses;
-  const filteredCatalogSchemas = catalogSchemas;
+  const filteredCatalogs = catalogs;
+  const filteredSchemas = schemas;
 
   useEffect(() => {
     fetchModels();
     fetchWarehouses(); // Initial load without search
-    fetchCatalogSchemas(undefined, 100); // Initial load with limit
+    fetchCatalogs(); // Load catalogs first
   }, []);
 
   useEffect(() => {
@@ -174,7 +223,6 @@ export function ChatPageAgent({
   const fetchWarehouses = async (search?: string) => {
     try {
       console.log(`🔍 Fetching warehouses${search ? ` (search: "${search}")` : ''}...`);
-      // Use fetch with query params for server-side filtering
       const queryParams = new URLSearchParams();
       if (search) queryParams.append('search', search);
       
@@ -197,7 +245,66 @@ export function ChatPageAgent({
     }
   };
 
-  const fetchCatalogSchemas = async (search?: string, limit: number = 100) => {
+  const fetchCatalogs = async (search?: string) => {
+    try {
+      console.log(`🔍 Fetching catalogs${search ? ` (search: "${search}")` : ''}...`);
+      const response = await fetch('/api/db/catalogs');
+      const data = await response.json();
+      
+      console.log("✅ Catalogs data:", data);
+      const catalogList = data.catalogs || [];
+      
+      // Apply client-side search filter if provided
+      const filtered = search 
+        ? catalogList.filter((c: any) => c.name.toLowerCase().includes(search.toLowerCase()))
+        : catalogList;
+      
+      setCatalogs(filtered);
+      
+      // Set first catalog as default if available and not already set
+      if (filtered.length > 0 && !selectedCatalog) {
+        console.log(`📊 Setting default catalog: ${filtered[0].name}`);
+        setSelectedCatalog(filtered[0].name);
+      } else if (filtered.length === 0) {
+        console.warn("⚠️ No catalogs returned from API");
+      }
+    } catch (error) {
+      console.error("❌ Failed to fetch catalogs:", error);
+      setCatalogs([]);
+    }
+  };
+
+  const fetchSchemas = async (catalogName: string, search?: string) => {
+    try {
+      console.log(`🔍 Fetching schemas for catalog "${catalogName}"${search ? ` (search: "${search}")` : ''}...`);
+      const response = await fetch(`/api/db/schemas/${encodeURIComponent(catalogName)}`);
+      const data = await response.json();
+      
+      console.log("✅ Schemas data:", data);
+      const schemaList = data.schemas || [];
+      
+      // Apply client-side search filter if provided
+      const filtered = search
+        ? schemaList.filter((s: any) => s.name.toLowerCase().includes(search.toLowerCase()))
+        : schemaList;
+      
+      setSchemas(filtered);
+      
+      // Set first schema as default if available and not already set
+      if (filtered.length > 0 && !selectedSchema) {
+        console.log(`📊 Setting default schema: ${filtered[0].name}`);
+        setSelectedSchema(filtered[0].name);
+      } else if (filtered.length === 0) {
+        console.warn(`⚠️ No schemas found in catalog "${catalogName}"`);
+      }
+    } catch (error) {
+      console.error(`❌ Failed to fetch schemas for catalog "${catalogName}":`, error);
+      setSchemas([]);
+    }
+  };
+
+  // DEPRECATED: Old combined fetch - keeping for reference, will remove
+  const fetchCatalogSchemas_OLD = async (search?: string, limit: number = 100) => {
     try {
       console.log(`🔍 Fetching catalog schemas${search ? ` (search: "${search}")` : ''} (limit: ${limit})...`);
       // Use fetch with query params for server-side filtering and limiting
@@ -229,19 +336,11 @@ export function ChatPageAgent({
     }
   };
 
-  const validateApiRegistryTable = async (catalogSchema: string, warehouseId: string) => {
-    if (!catalogSchema || !warehouseId) {
-      setTableValidation({ exists: false, message: "Please select warehouse and catalog.schema", checking: false });
+  const validateApiRegistryTable = async (catalog: string, schema: string, warehouseId: string) => {
+    if (!catalog || !schema || !warehouseId) {
+      setTableValidation({ exists: false, message: "Please select warehouse, catalog, and schema", checking: false });
       return;
     }
-
-    const parts = catalogSchema.split('.');
-    if (parts.length !== 2) {
-      setTableValidation({ exists: false, error: "Invalid catalog.schema format", checking: false });
-      return;
-    }
-
-    const [catalog, schema] = parts;
 
     setTableValidation({ exists: true, checking: true });
 
@@ -271,10 +370,10 @@ export function ChatPageAgent({
 
   // Validate table when warehouse or catalog/schema changes
   useEffect(() => {
-    if (selectedWarehouse && selectedCatalogSchema) {
-      validateApiRegistryTable(selectedCatalogSchema, selectedWarehouse);
+    if (selectedWarehouse && selectedCatalog && selectedSchema) {
+      validateApiRegistryTable(selectedCatalog, selectedSchema, selectedWarehouse);
     }
-  }, [selectedWarehouse, selectedCatalogSchema]);
+  }, [selectedWarehouse, selectedCatalog, selectedSchema]);
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -664,18 +763,76 @@ export function ChatPageAgent({
             </SelectContent>
           </Select>
 
+          {/* CATALOG DROPDOWN */}
+          <Select 
+            value={selectedCatalog} 
+            onValueChange={(value) => {
+              setSelectedCatalog(value);
+              setCatalogFilter(""); // Clear filter on selection
+            }}
+            onOpenChange={(open) => {
+              if (!open) setCatalogFilter(""); // Clear filter on close
+            }}
+          >
+            <SelectTrigger className={`w-[180px] ${
+              isDark
+                ? "bg-black/20 border-white/20 text-white"
+                : "bg-white border-gray-300 text-gray-900"
+            } backdrop-blur-sm`}>
+              <SelectValue placeholder="Select catalog">
+                {catalogs.find((c) => c.name === selectedCatalog)?.name || "Select catalog"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <div className="flex items-center px-2 pb-2 sticky top-0 bg-background">
+                <Search className="h-4 w-4 mr-2 text-muted-foreground" />
+                <Input
+                  placeholder="Search catalogs..."
+                  value={catalogFilter}
+                  onChange={(e) => setCatalogFilter(e.target.value)}
+                  className="h-8 text-sm"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                />
+              </div>
+              <div className="max-h-[300px] overflow-y-auto">
+                {filteredCatalogs.length === 0 ? (
+                  <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                    No catalogs found
+                  </div>
+                ) : (
+                  filteredCatalogs.map((catalog) => (
+                    <SelectItem
+                      key={catalog.name}
+                      value={catalog.name}
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-medium">{catalog.name}</span>
+                        {catalog.comment && (
+                          <span className="text-xs text-muted-foreground">{catalog.comment}</span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))
+                )}
+              </div>
+            </SelectContent>
+          </Select>
+
+          {/* SCHEMA DROPDOWN */}
           <div className="flex items-center gap-2">
             <Select 
-              value={selectedCatalogSchema} 
+              value={selectedSchema} 
               onValueChange={(value) => {
-                setSelectedCatalogSchema(value);
-                setCatalogSchemaFilter(""); // Clear filter on selection
+                setSelectedSchema(value);
+                setSchemaFilter(""); // Clear filter on selection
               }}
               onOpenChange={(open) => {
-                if (!open) setCatalogSchemaFilter(""); // Clear filter on close
+                if (!open) setSchemaFilter(""); // Clear filter on close
               }}
+              disabled={!selectedCatalog}
             >
-              <SelectTrigger className={`w-[280px] ${
+              <SelectTrigger className={`w-[180px] ${
                 isDark
                   ? "bg-black/20 text-white"
                   : "bg-white text-gray-900"
@@ -686,37 +843,37 @@ export function ChatPageAgent({
                   ? "border-white/20"
                   : "border-gray-300"
               } backdrop-blur-sm`}>
-                <SelectValue placeholder="Select catalog.schema">
-                  {selectedCatalogSchema || "Select catalog.schema"}
+                <SelectValue placeholder="Select schema">
+                  {schemas.find((s) => s.name === selectedSchema)?.name || "Select schema"}
                 </SelectValue>
               </SelectTrigger>
             <SelectContent>
               <div className="flex items-center px-2 pb-2 sticky top-0 bg-background">
                 <Search className="h-4 w-4 mr-2 text-muted-foreground" />
                 <Input
-                  placeholder="Search catalog.schema..."
-                  value={catalogSchemaFilter}
-                  onChange={(e) => setCatalogSchemaFilter(e.target.value)}
+                  placeholder="Search schemas..."
+                  value={schemaFilter}
+                  onChange={(e) => setSchemaFilter(e.target.value)}
                   className="h-8 text-sm"
                   onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => e.stopPropagation()}
                 />
               </div>
               <div className="max-h-[300px] overflow-y-auto">
-                {filteredCatalogSchemas.length === 0 ? (
+                {filteredSchemas.length === 0 ? (
                   <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                    No catalog.schema found
+                    {selectedCatalog ? "No schemas found" : "Select a catalog first"}
                   </div>
                 ) : (
-                  filteredCatalogSchemas.map((cs) => (
+                  filteredSchemas.map((schema) => (
                     <SelectItem
-                      key={cs.full_name}
-                      value={cs.full_name}
+                      key={schema.name}
+                      value={schema.name}
                     >
                       <div className="flex flex-col">
-                        <span className="font-medium">{cs.full_name}</span>
-                        {cs.comment && (
-                          <span className="text-xs text-muted-foreground">{cs.comment}</span>
+                        <span className="font-medium">{schema.name}</span>
+                        {schema.comment && (
+                          <span className="text-xs text-muted-foreground">{schema.comment}</span>
                         )}
                       </div>
                     </SelectItem>
@@ -725,8 +882,8 @@ export function ChatPageAgent({
               </div>
             </SelectContent>
             </Select>
-            {!tableValidation.exists && !tableValidation.checking && (
-              <div className="flex items-center gap-1 text-red-500" title={`No api_http_registry table exists in ${selectedCatalogSchema}. Switch to a catalog.schema with the api_http_registry table, or run setup_api_http_registry_table.sql to create it.`}>
+            {!tableValidation.exists && !tableValidation.checking && selectedCatalog && selectedSchema && (
+              <div className="flex items-center gap-1 text-red-500" title={`No api_http_registry table exists in ${selectedCatalog}.${selectedSchema}. Switch to a different catalog.schema or run setup_api_http_registry_table.sql to create it.`}>
                 <AlertCircle className="h-4 w-4" />
                 <span className="text-xs">No api_http_registry table in this schema</span>
               </div>
@@ -739,7 +896,7 @@ export function ChatPageAgent({
       </div>
 
       {/* Error Banner for Missing Table */}
-      {!tableValidation.exists && !tableValidation.checking && selectedCatalogSchema && (
+      {!tableValidation.exists && !tableValidation.checking && selectedCatalog && selectedSchema && (
         <div className={`mx-6 mt-3 rounded-lg border-2 p-4 ${
           isDark
             ? "bg-red-500/5 border-red-500/30"
@@ -753,13 +910,13 @@ export function ChatPageAgent({
               <h3 className={`font-semibold text-sm mb-1 ${
                 isDark ? "text-white" : "text-gray-900"
               }`}>
-                No api_http_registry table exists in {selectedCatalogSchema}
+                No api_http_registry table exists in {selectedCatalog}.{selectedSchema}
               </h3>
               <div className={`text-xs space-y-0.5 ${
                 isDark ? "text-white/70" : "text-gray-700"
               }`}>
-                <p>Switch to a catalog.schema with the api_http_registry table,</p>
-                <p>or run setup_api_http_registry_table.sql to create it in <span className="font-mono font-medium">{selectedCatalogSchema}</span></p>
+                <p>Switch to a different catalog.schema with the api_http_registry table,</p>
+                <p>or run setup_api_http_registry_table.sql to create it in <span className="font-mono font-medium">{selectedCatalog}.{selectedSchema}</span></p>
               </div>
             </div>
           </div>
