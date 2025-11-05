@@ -190,167 +190,137 @@ export function WelcomePage() {
 
         {/* Main Content Grid - First Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          {/* Getting Started */}
+          {/* Quick Start Guide */}
           <Card className="h-fit">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Play className="h-5 w-5" />
-                Getting Started
+                Quick Start Guide
               </CardTitle>
               <CardDescription>
-                Everything you need to know to start developing
+                How to use the API Registry to discover and call external APIs
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <h4 className="font-semibold mb-2">Development Commands</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      ./setup.sh
-                    </code>
-                    <span className="text-muted-foreground">
-                      Setup environment & dependencies
-                    </span>
+                <h4 className="font-semibold mb-3">Step 1: Select Your Resources</h4>
+                <div className="space-y-2 text-sm ml-2">
+                  <div className="flex items-start gap-2">
+                    <span className="text-blue-600 font-bold">1.</span>
+                    <div>
+                      <span className="font-medium">Choose a SQL Warehouse</span>
+                      <p className="text-muted-foreground text-xs">Executes API calls and manages HTTP connections</p>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      ./watch.sh
-                    </code>
-                    <span className="text-muted-foreground">
-                      Start dev servers (background)
-                    </span>
+                  <div className="flex items-start gap-2">
+                    <span className="text-blue-600 font-bold">2.</span>
+                    <div>
+                      <span className="font-medium">Select a Catalog</span>
+                      <p className="text-muted-foreground text-xs">Unity Catalog namespace for your APIs</p>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      ./fix.sh
-                    </code>
-                    <span className="text-muted-foreground">
-                      Format code (Python + TS)
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      ./deploy.sh
-                    </code>
-                    <span className="text-muted-foreground">
-                      Deploy to Databricks Apps
-                    </span>
+                  <div className="flex items-start gap-2">
+                    <span className="text-blue-600 font-bold">3.</span>
+                    <div>
+                      <span className="font-medium">Pick a Schema</span>
+                      <p className="text-muted-foreground text-xs">Where your api_http_registry table lives</p>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div>
-                <h4 className="font-semibold mb-2">Development Ports</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span>Frontend (React + Vite)</span>
-                    <Badge variant="outline">:5173</Badge>
+                <h4 className="font-semibold mb-3">Step 2: Discover & Register APIs</h4>
+                <div className="space-y-2 text-sm ml-2">
+                  <p className="text-muted-foreground">Ask the AI agent in natural language:</p>
+                  <div className="bg-muted px-3 py-2 rounded">
+                    <code className="text-xs">"Register the FRED economic data API"</code>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span>Backend (FastAPI)</span>
-                    <Badge variant="outline">:8000</Badge>
+                  <div className="bg-muted px-3 py-2 rounded">
+                    <code className="text-xs">"Get GDP data from the FRED API"</code>
+                  </div>
+                  <div className="bg-muted px-3 py-2 rounded">
+                    <code className="text-xs">"List all registered APIs"</code>
                   </div>
                 </div>
               </div>
 
+              <div>
+                <h4 className="font-semibold mb-3">Step 3: Call APIs</h4>
+                <p className="text-sm text-muted-foreground">
+                  The AI agent automatically checks the registry, registers new APIs if needed,
+                  and executes calls via Unity Catalog HTTP Connections.
+                </p>
+              </div>
+
               <Button asChild className="w-full">
-                <a
-                  href="http://localhost:8000/docs"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href="/chat">
                   <ExternalLink className="h-4 w-4 mr-2" />
-                  Explore API Documentation
+                  Open Chat Playground
                 </a>
               </Button>
             </CardContent>
           </Card>
 
-          {/* Claude Commands */}
+          {/* Key Pages */}
           <Card className="h-fit">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Bot className="h-5 w-5" />
-                Claude Commands
+                Application Pages
               </CardTitle>
               <CardDescription>
-                Natural language commands for development workflow
+                Navigate the API Registry interface
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <h4 className="font-semibold mb-2">Development</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      "start the devserver"
-                    </code>
-                    <span className="text-muted-foreground">
-                      Runs ./watch.sh
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      "kill the devserver"
-                    </code>
-                    <span className="text-muted-foreground">
-                      Stops background processes
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      "fix the code"
-                    </code>
-                    <span className="text-muted-foreground">Runs ./fix.sh</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      "deploy the app"
-                    </code>
-                    <span className="text-muted-foreground">
-                      Runs ./deploy.sh
-                    </span>
-                  </div>
-                </div>
+                <h4 className="font-semibold mb-3">Chat Playground</h4>
+                <p className="text-sm text-muted-foreground mb-2">
+                  AI-powered interface for discovering and calling APIs
+                </p>
+                <ul className="space-y-1 text-sm ml-4 list-disc text-muted-foreground">
+                  <li>Select warehouse, catalog, and schema (two dropdown)</li>
+                  <li>Chat with AI to register and call APIs</li>
+                  <li>View MLflow traces for debugging</li>
+                </ul>
               </div>
 
               <div>
-                <h4 className="font-semibold mb-2">Development Tasks</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      "add a new API endpoint"
-                    </code>
-                    <span className="text-muted-foreground">
-                      Creates FastAPI routes
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      "create a new React component"
-                    </code>
-                    <span className="text-muted-foreground">
-                      Builds UI components
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      "debug this error"
-                    </code>
-                    <span className="text-muted-foreground">
-                      Analyzes and fixes issues
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      "open the UI in playwright"
-                    </code>
-                    <span className="text-muted-foreground">
-                      Opens app in browser
-                    </span>
-                  </div>
-                </div>
+                <h4 className="font-semibold mb-3">API Registry</h4>
+                <p className="text-sm text-muted-foreground mb-2">
+                  View and manage all registered APIs
+                </p>
+                <ul className="space-y-1 text-sm ml-4 list-disc text-muted-foreground">
+                  <li>Browse registered HTTP connections</li>
+                  <li>Edit API metadata and documentation</li>
+                  <li>Delete unused APIs</li>
+                  <li>View connection details and parameters</li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3">MCP Info</h4>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Explore available MCP tools and prompts
+                </p>
+                <ul className="space-y-1 text-sm ml-4 list-disc text-muted-foreground">
+                  <li>View all MCP tools (categorized)</li>
+                  <li>See tool descriptions and parameters</li>
+                  <li>Setup instructions for Claude Code</li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3">Traces</h4>
+                <p className="text-sm text-muted-foreground mb-2">
+                  MLflow tracing for LLM observability
+                </p>
+                <ul className="space-y-1 text-sm ml-4 list-disc text-muted-foreground">
+                  <li>View all LLM interactions</li>
+                  <li>Debug tool calls and responses</li>
+                  <li>Analyze latency and token usage</li>
+                </ul>
               </div>
             </CardContent>
           </Card>
@@ -421,123 +391,119 @@ export function WelcomePage() {
 
         {/* Second Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
-          {/* Tech Stack */}
+          {/* Authentication Types */}
           <Card className="h-fit">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Code className="h-5 w-5" />
-                Tech Stack
+                Supported Authentication
               </CardTitle>
               <CardDescription>
-                Modern tools and frameworks for rapid development
+                Unity Catalog HTTP Connections support multiple auth types
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-4">
                 <div>
-                  <h4 className="font-semibold mb-3 text-blue-600">Backend</h4>
-                  <ul className="space-y-2 text-sm">
-                    <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
-                        Python
-                      </Badge>
-                      <span>FastAPI + uvicorn</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
-                        Package
-                      </Badge>
-                      <span>uv for dependencies</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
-                        SDK
-                      </Badge>
-                      <span>Databricks SDK</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
-                        Quality
-                      </Badge>
-                      <span>ruff for linting</span>
-                    </li>
-                  </ul>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Badge variant="outline" className="bg-green-50 dark:bg-green-950">none</Badge>
+                    <h4 className="font-semibold text-sm">Public APIs</h4>
+                  </div>
+                  <p className="text-xs text-muted-foreground ml-2">
+                    No authentication required. Use for public endpoints like weather APIs, currency rates, etc.
+                  </p>
                 </div>
+
                 <div>
-                  <h4 className="font-semibold mb-3 text-purple-600">
-                    Frontend
-                  </h4>
-                  <ul className="space-y-2 text-sm">
-                    <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
-                        React
-                      </Badge>
-                      <span>TypeScript + Vite</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
-                        UI
-                      </Badge>
-                      <span>shadcn/ui + Tailwind</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
-                        Data
-                      </Badge>
-                      <span>React Query</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs">
-                        Package
-                      </Badge>
-                      <span>bun for speed</span>
-                    </li>
-                  </ul>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Badge variant="outline" className="bg-blue-50 dark:bg-blue-950">api_key</Badge>
+                    <h4 className="font-semibold text-sm">API Key Authentication</h4>
+                  </div>
+                  <p className="text-xs text-muted-foreground ml-2">
+                    API key passed as query parameter. Used by FRED, OpenWeather, and many data APIs.
+                    Stored in <code className="text-xs bg-muted px-1 rounded">mcp_api_keys</code> secret scope.
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Badge variant="outline" className="bg-purple-50 dark:bg-purple-950">bearer_token</Badge>
+                    <h4 className="font-semibold text-sm">Bearer Token Authentication</h4>
+                  </div>
+                  <p className="text-xs text-muted-foreground ml-2">
+                    Bearer token in Authorization header. Used by GitHub, many REST APIs.
+                    Stored in <code className="text-xs bg-muted px-1 rounded">mcp_bearer_tokens</code> secret scope.
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t">
+                  <p className="text-xs text-muted-foreground">
+                    <strong>Credential Security:</strong> All API keys and tokens are securely stored in Unity Catalog secret scopes.
+                    The app's service principal manages secrets on your behalf - no per-user permissions needed!
+                  </p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Project Structure */}
+          {/* Example Use Cases */}
           <Card className="h-fit">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Project Structure
+                Example Use Cases
               </CardTitle>
               <CardDescription>
-                Understanding the codebase layout and key files
+                Real-world scenarios for the API Registry
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 font-mono text-sm">
-                <pre className="text-muted-foreground leading-relaxed">
-                  {`├── server/                    # FastAPI backend
-│   ├── app.py                 # Main application
-│   ├── routers/               # API route handlers
-│   │   ├── user.py           # User endpoints
-│   │   └── insights.py       # Insights endpoints
-│   └── models.py             # Data models
-│
-├── client/                    # React frontend
-│   ├── src/
-│   │   ├── pages/            # React pages
-│   │   ├── components/       # UI components
-│   │   ├── lib/             # Utilities
-│   │   └── client/          # Generated API client
-│   ├── package.json         # Frontend dependencies
-│   └── vite.config.ts       # Vite configuration
-│
-├── scripts/                   # Development automation
-│   ├── setup.sh             # Environment setup
-│   ├── watch.sh             # Development server
-│   ├── fix.sh               # Code formatting
-│   └── deploy.sh            # Deployment
-│
-├── pyproject.toml            # Python dependencies
-├── app.yaml                  # Databricks Apps config
-└── CLAUDE.md                 # Development guide`}
-                </pre>
+              <div className="space-y-4">
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">Economic Data</Badge>
+                    FRED API
+                  </h4>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Access Federal Reserve economic data for GDP, unemployment, inflation, etc.
+                  </p>
+                  <div className="bg-muted px-3 py-2 rounded text-xs">
+                    <code>"Get the latest US GDP data from FRED"</code>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">Developer APIs</Badge>
+                    GitHub API
+                  </h4>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    List repositories, get commit history, manage issues and PRs.
+                  </p>
+                  <div className="bg-muted px-3 py-2 rounded text-xs">
+                    <code>"List my GitHub repositories"</code>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold mb-2 flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">Weather</Badge>
+                    OpenWeather API
+                  </h4>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Get current weather, forecasts, and historical data.
+                  </p>
+                  <div className="bg-muted px-3 py-2 rounded text-xs">
+                    <code>"What's the weather in San Francisco?"</code>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t">
+                  <p className="text-xs text-muted-foreground">
+                    <strong>Tip:</strong> The AI agent automatically discovers API documentation,
+                    registers endpoints, and handles authentication - you just ask in natural language!
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
