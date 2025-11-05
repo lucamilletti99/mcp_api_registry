@@ -94,8 +94,11 @@ class CatalogSchema(BaseModel):
 
 
 @router.get('/warehouses')
-async def list_warehouses(request: Request) -> Dict[str, Any]:
+async def list_warehouses(request: Request, search: str = None) -> Dict[str, Any]:
     """List all SQL warehouses in the Databricks workspace.
+
+    Args:
+        search: Optional search filter (case-insensitive, matches warehouse name)
 
     Returns:
         Dictionary with list of warehouses and their details
@@ -104,7 +107,13 @@ async def list_warehouses(request: Request) -> Dict[str, Any]:
         w = get_workspace_client(request)
 
         warehouses = []
+        search_lower = search.lower() if search else None
+        
         for warehouse in w.warehouses.list():
+            # Apply search filter
+            if search_lower and search_lower not in warehouse.name.lower():
+                continue
+                
             warehouses.append(
                 Warehouse(
                     id=warehouse.id,
@@ -176,26 +185,49 @@ async def list_schemas(catalog_name: str, request: Request) -> Dict[str, Any]:
 
 
 @router.get('/catalog-schemas')
-async def list_all_catalog_schemas(request: Request) -> Dict[str, Any]:
-    """List all catalog.schema combinations available in the workspace.
+async def list_all_catalog_schemas(
+    request: Request,
+    limit: int = 100,
+    search: str = None
+) -> Dict[str, Any]:
+    """List catalog.schema combinations available in the workspace.
 
     This is useful for populating a dropdown that shows catalog_name.schema_name format.
+    Performance optimized with limit and search filtering.
+
+    Args:
+        limit: Maximum number of results to return (default: 100, helps with performance)
+        search: Optional search filter (case-insensitive, matches catalog or schema name)
 
     Returns:
-        Dictionary with list of all catalog.schema combinations
+        Dictionary with list of catalog.schema combinations
     """
     try:
         w = get_workspace_client(request)
 
         catalog_schemas = []
+        search_lower = search.lower() if search else None
 
         # Iterate through all catalogs
         for catalog in w.catalogs.list():
             catalog_name = catalog.name
+            
+            # Skip catalog if search doesn't match
+            if search_lower and search_lower not in catalog_name.lower():
+                # Still check schemas in case they match
+                schemas_match = False
+            else:
+                schemas_match = True
 
             # For each catalog, get all schemas
             try:
                 for schema in w.schemas.list(catalog_name=catalog_name):
+                    # Apply search filter
+                    if search_lower:
+                        full_name = f'{catalog_name}.{schema.name}'
+                        if search_lower not in full_name.lower():
+                            continue
+                    
                     catalog_schemas.append(
                         CatalogSchema(
                             catalog_name=catalog_name,
@@ -204,12 +236,29 @@ async def list_all_catalog_schemas(request: Request) -> Dict[str, Any]:
                             comment=schema.comment if hasattr(schema, 'comment') else None,
                         )
                     )
+                    
+                    # Stop if we hit the limit
+                    if len(catalog_schemas) >= limit:
+                        break
+                        
             except Exception as e:
                 # Skip catalogs that can't be accessed
                 print(f'Warning: Could not list schemas for catalog {catalog_name}: {str(e)}')
                 continue
+            
+            # Stop if we hit the limit
+            if len(catalog_schemas) >= limit:
+                break
 
-        return {'catalog_schemas': [cs.model_dump() for cs in catalog_schemas], 'count': len(catalog_schemas)}
+        total_count = len(catalog_schemas)
+        has_more = total_count == limit
+        
+        return {
+            'catalog_schemas': [cs.model_dump() for cs in catalog_schemas],
+            'count': total_count,
+            'has_more': has_more,
+            'limit': limit
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to list catalog schemas: {str(e)}')

@@ -123,34 +123,37 @@ export function ChatPageAgent({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
 
-  // Debounce filter updates (300ms delay)
+  // Server-side search with debounce
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedWarehouseFilter(warehouseFilter);
+      if (warehouseFilter !== debouncedWarehouseFilter) {
+        setDebouncedWarehouseFilter(warehouseFilter);
+        // Trigger server-side fetch with filter
+        fetchWarehouses(warehouseFilter);
+      }
     }, 750);
     return () => clearTimeout(timer);
   }, [warehouseFilter]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedCatalogSchemaFilter(catalogSchemaFilter);
+      if (catalogSchemaFilter !== debouncedCatalogSchemaFilter) {
+        setDebouncedCatalogSchemaFilter(catalogSchemaFilter);
+        // Trigger server-side fetch with filter
+        fetchCatalogSchemas(catalogSchemaFilter);
+      }
     }, 750);
     return () => clearTimeout(timer);
   }, [catalogSchemaFilter]);
 
-  // Filtered lists based on debounced search
-  const filteredWarehouses = warehouses.filter((w) =>
-    w.name.toLowerCase().includes(debouncedWarehouseFilter.toLowerCase())
-  );
-
-  const filteredCatalogSchemas = catalogSchemas.filter((cs) =>
-    cs.full_name.toLowerCase().includes(debouncedCatalogSchemaFilter.toLowerCase())
-  );
+  // No client-side filtering needed - using server-side filtering
+  const filteredWarehouses = warehouses;
+  const filteredCatalogSchemas = catalogSchemas;
 
   useEffect(() => {
     fetchModels();
-    fetchWarehouses();
-    fetchCatalogSchemas();
+    fetchWarehouses(); // Initial load without search
+    fetchCatalogSchemas(undefined, 100); // Initial load with limit
   }, []);
 
   useEffect(() => {
@@ -168,37 +171,56 @@ export function ChatPageAgent({
     }
   };
 
-  const fetchWarehouses = async () => {
+  const fetchWarehouses = async (search?: string) => {
     try {
-      console.log("🔍 Fetching warehouses...");
-      const data = await DatabaseService.listWarehousesApiDbWarehousesGet();
+      console.log(`🔍 Fetching warehouses${search ? ` (search: "${search}")` : ''}...`);
+      // Use fetch with query params for server-side filtering
+      const queryParams = new URLSearchParams();
+      if (search) queryParams.append('search', search);
+      
+      const response = await fetch(`/api/db/warehouses?${queryParams}`);
+      const data = await response.json();
+      
       console.log("✅ Warehouses data:", data);
       setWarehouses(data.warehouses || []);
-      // Set first warehouse as default if available
-      if (data.warehouses && data.warehouses.length > 0) {
+      
+      // Set first warehouse as default if available and not already set
+      if (data.warehouses && data.warehouses.length > 0 && !selectedWarehouse) {
         console.log(`📊 Setting default warehouse: ${data.warehouses[0].name} (${data.warehouses[0].id})`);
         setSelectedWarehouse(data.warehouses[0].id);
-      } else {
+      } else if (!data.warehouses || data.warehouses.length === 0) {
         console.warn("⚠️ No warehouses returned from API");
       }
     } catch (error) {
       console.error("❌ Failed to fetch warehouses:", error);
-      // Show a toast or error message to user
       setWarehouses([]);
     }
   };
 
-  const fetchCatalogSchemas = async () => {
+  const fetchCatalogSchemas = async (search?: string, limit: number = 100) => {
     try {
-      console.log("🔍 Fetching catalog schemas...");
-      const data = await DatabaseService.listAllCatalogSchemasApiDbCatalogSchemasGet();
+      console.log(`🔍 Fetching catalog schemas${search ? ` (search: "${search}")` : ''} (limit: ${limit})...`);
+      // Use fetch with query params for server-side filtering and limiting
+      const queryParams = new URLSearchParams();
+      queryParams.append('limit', limit.toString());
+      if (search) queryParams.append('search', search);
+      
+      const response = await fetch(`/api/db/catalog-schemas?${queryParams}`);
+      const data = await response.json();
+      
       console.log("✅ Catalog schemas data:", data);
       setCatalogSchemas(data.catalog_schemas || []);
-      // Set first catalog.schema as default if available
-      if (data.catalog_schemas && data.catalog_schemas.length > 0) {
+      
+      // Warn if there are more results
+      if (data.has_more) {
+        console.log(`ℹ️ Showing first ${data.count} results. Use search to narrow down.`);
+      }
+      
+      // Set first catalog.schema as default if available and not already set
+      if (data.catalog_schemas && data.catalog_schemas.length > 0 && !selectedCatalogSchema) {
         console.log(`📊 Setting default catalog.schema: ${data.catalog_schemas[0].full_name}`);
         setSelectedCatalogSchema(data.catalog_schemas[0].full_name);
-      } else {
+      } else if (!data.catalog_schemas || data.catalog_schemas.length === 0) {
         console.warn("⚠️ No catalog schemas returned from API");
       }
     } catch (error) {
