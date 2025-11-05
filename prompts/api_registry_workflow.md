@@ -1,6 +1,41 @@
 # API Registry Workflow
 
-## 🔴🔴🔴 STOP! READ THIS FIRST 🔴🔴🔴
+## 🔴🔴🔴 CRITICAL: READ BEFORE MAKING ANY TOOL CALL 🔴🔴🔴
+
+### ⚠️ TOOL CALL SEQUENCE VALIDATOR ⚠️
+
+**Before making ANY tool call, check this table:**
+
+| Tool You're About To Call | REQUIRED: Did you JUST call this in THIS turn? | If NO, what MUST you call first? |
+|---------------------------|------------------------------------------------|----------------------------------|
+| `execute_dbsql` | `check_api_http_registry` | **STOP! Call check_api_http_registry first!** |
+| `call_parameterized_api` | `check_api_http_registry` | **STOP! Call check_api_http_registry first!** |
+| `register_api` | `fetch_api_documentation` | **STOP! Call fetch_api_documentation first!** |
+| `check_api_http_registry` | Nothing (this is always OK) | You can call this anytime |
+| `fetch_api_documentation` | Nothing (this is always OK) | You can call this anytime |
+
+**RULE: You CANNOT call execute_dbsql or call_parameterized_api without calling check_api_http_registry FIRST in the SAME turn!**
+
+**RULE: You CANNOT call register_api without calling fetch_api_documentation FIRST in the SAME turn!**
+
+### 🚨 EXAMPLE - DETECT HALLUCINATION:
+
+```
+About to call: execute_dbsql(query="SELECT http_request(conn => 'fred_connection', ...)")
+
+❓ Question: Did I call check_api_http_registry in THIS turn?
+   Look at tool call history in THIS turn:
+   - No check_api_http_registry call found
+   
+🔴 VERDICT: HALLUCINATION DETECTED!
+   → STOP! Do NOT call execute_dbsql!
+   → Call check_api_http_registry first!
+   → Use connection_name from its response!
+```
+
+---
+
+## 🔴🔴🔴 STOP! READ THIS BEFORE PROCESSING REQUEST 🔴🔴🔴
 
 ### CONVERSATION HISTORY IS POISON - DO NOT TRUST IT!
 
@@ -51,6 +86,46 @@ Q2: Is the API in the registry?
 ask yourself: "Did I call check_api_http_registry in THIS turn and use values from its response?"**
 
 **If the answer is NO, you are HALLUCINATING. STOP and call check_api_http_registry first!**
+
+---
+
+## 🚨 ULTRA-SIMPLE IF-THEN RULES (NO EXCEPTIONS!)
+
+**Learn these 3 rules. They override EVERYTHING else:**
+
+### RULE 1: IF you need to call an API → THEN check registry FIRST
+```
+IF: User asks for data (FRED, weather, GitHub, ANY external API)
+THEN: Call check_api_http_registry FIRST
+      ONLY THEN call execute_dbsql with connection_name from registry response
+      
+NEVER skip check_api_http_registry!
+NEVER use connection names from memory!
+NEVER assume you know what's in the registry!
+```
+
+### RULE 2: IF you need to register an API → THEN fetch docs FIRST
+```
+IF: API not found in registry and you need to register it
+THEN: Call fetch_api_documentation FIRST
+      ONLY THEN call register_api with auth_type from docs response
+      AFTER registration: Call check_api_http_registry to verify
+      
+NEVER skip fetch_api_documentation!
+NEVER use auth_type from memory!
+NEVER reuse auth details from earlier registrations!
+```
+
+### RULE 3: IF you see a connection name in your SQL → THEN ask "where did this come from?"
+```
+IF: You're about to write: http_request(conn => 'some_connection_name', ...)
+THEN: Ask yourself: "Did I get 'some_connection_name' from check_api_http_registry in THIS turn?"
+      
+      IF answer is YES: ✅ Proceed
+      IF answer is NO: 🔴 STOP! You're hallucinating! Go back and check registry!
+      IF answer is "I remember it": 🔴 STOP! That's hallucination!
+      IF answer is "I just registered it": 🔴 STOP! Still need to check registry!
+```
 
 ---
 
@@ -312,6 +387,26 @@ check_api_http_registry(
 
 ## Step 2: CALL THE API (IF FOUND IN REGISTRY)
 
+### 🛑 STOP! BEFORE YOU PROCEED, ANSWER THIS:
+
+**Did you call `check_api_http_registry` in THIS turn and receive a response?**
+- ❌ NO or NOT SURE → **GO BACK TO STEP 1 RIGHT NOW!**
+- ✅ YES → Continue below
+
+---
+
+### 🔴 FINAL HALLUCINATION CHECK (READ CAREFULLY!)
+
+**Look at your most recent tool call. Is it `check_api_http_registry`?**
+- ❌ NO → **YOU ARE ABOUT TO HALLUCINATE! Go back to Step 1!**
+- ✅ YES → Look at its response. Do you see a `connection_name` field in the JSON response?
+  - ❌ NO → **The API is not registered. Go to Step 3!**
+  - ✅ YES → Copy that EXACT `connection_name` value. Continue below.
+
+---
+
+### Now construct your SQL query:
+
 **Use execute_dbsql with http_request() SQL**
 
 From Step 1's `check_api_http_registry` response, extract:
@@ -323,8 +418,31 @@ From Step 1's `check_api_http_registry` response, extract:
 - Earlier conversation turns
 - Guesses or assumptions
 - Documentation you fetched
+- What you THINK the connection name should be
+- What the user told you the connection name is
 
 **✅ ONLY use values directly from the `check_api_http_registry` response you just received**
+
+### 🔴 BEFORE CALLING execute_dbsql, DO THIS SELF-CHECK:
+
+```
+Where did I get the connection_name I'm about to use?
+
+❌ WRONG ANSWERS:
+- "I remember it from earlier in the conversation"
+- "I registered it, so it must be called <name>_connection"
+- "The user told me it's called <name>"
+- "It's the same API we used before"
+- "I can guess the naming pattern"
+
+✅ RIGHT ANSWER:
+- "I literally just called check_api_http_registry in THIS turn, 
+   and I'm copying the connection_name EXACTLY from its JSON response"
+```
+
+**If you gave a WRONG answer → GO BACK TO STEP 1!**
+
+---
 
 Now write a SQL query using these EXACT values (**Any queries passed to the query parameter should not include major whitespace and \n characters**)
 
@@ -366,6 +484,14 @@ execute_dbsql(
 
 #### 3a. Fetch API Documentation FIRST
 
+### 🛑 STOP! BEFORE YOU CALL register_api:
+
+**Did you call `fetch_api_documentation` in THIS turn?**
+- ❌ NO or NOT SURE → **DO NOT proceed! Call fetch_api_documentation NOW!**
+- ✅ YES → Continue below
+
+---
+
 **MANDATORY: Always fetch documentation before registering!**
 
 **🚨 DO NOT use documentation from conversation history or memory!**
@@ -373,6 +499,7 @@ execute_dbsql(
 - Even if the user already showed you the docs, fetch them with the tool
 - Documentation might have changed
 - You might misremember key details
+- Even if you registered a similar API from the same service, fetch docs AGAIN
 
 ```python
 fetch_api_documentation(
@@ -391,8 +518,34 @@ fetch_api_documentation(
 - Parameter schemas from conversation history
 - URL structures you saw previously
 - Your assumptions about how the API works
+- Auth details from other similar APIs (e.g., "I registered another FRED endpoint, so this one also uses api_key")
+
+### 🔴 SELF-CHECK BEFORE CALLING register_api:
+
+```
+Where did I get the auth_type I'm about to use in register_api?
+
+❌ WRONG ANSWERS:
+- "I remember this API uses api_key from earlier"
+- "I registered another endpoint from this service earlier"
+- "The user told me it uses bearer_token"
+- "I can see from conversation history it needs authentication"
+- "This seems like the kind of API that would use api_key"
+
+✅ RIGHT ANSWER:
+- "I literally just called fetch_api_documentation in THIS turn,
+   and I'm extracting auth_type from its FRESH response"
+```
+
+**If you gave a WRONG answer → Call fetch_api_documentation NOW!**
+
+---
 
 #### 3b. Register the API with extracted details FROM THE DOCUMENTATION YOU JUST FETCHED
+
+**Double-check: Is your most recent tool call `fetch_api_documentation`?**
+- ❌ NO → **Stop! Go back and fetch documentation!**
+- ✅ YES → Use values from its response below
 
 ```python
 register_api(
