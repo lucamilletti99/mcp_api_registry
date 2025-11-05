@@ -288,8 +288,8 @@ async def validate_api_registry_table(catalog: str, schema: str, warehouse_id: s
 
         w = get_workspace_client(request)
 
-        # Build table name
-        table_name = f'{catalog}.{schema}.api_http_registry'
+        # Build table name with proper backtick quoting for special characters
+        table_name = f'`{catalog}`.`{schema}`.`api_http_registry`'
 
         # Use DESCRIBE TABLE to check existence - this only reads metadata, not storage
         # Avoids Azure storage authorization issues with SELECT queries
