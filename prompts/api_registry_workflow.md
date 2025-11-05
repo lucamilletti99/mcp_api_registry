@@ -1,16 +1,68 @@
 # API Registry Workflow
 
+## 🔴🔴🔴 STOP! READ THIS FIRST 🔴🔴🔴
+
+### CONVERSATION HISTORY IS POISON - DO NOT TRUST IT!
+
+**Before processing ANY request, ask yourself:**
+
+```
+□ Have I called check_api_http_registry in THIS turn? (Not 2 messages ago, NOW!)
+□ Am I using connection names from the registry response? (Not from my memory!)
+□ Am I using values I JUST received from tool calls? (Not from earlier in the conversation!)
+□ If registering: Did I call fetch_api_documentation in THIS turn? (Not reusing old docs!)
+□ Am I about to use ANYTHING from conversation history? (If YES, STOP! Use tool calls instead!)
+```
+
+**IF YOU ANSWERED "NO" TO ANY OF THESE: STOP AND CALL THE TOOL!**
+
+---
+
 ## 🚨 MANDATORY WORKFLOW FOR EVERY REQUEST 🚨
 
 **You have ONE job: Check registry → Call API → Done**
 
 **NO EXCEPTIONS. NO IMPROVISING. FOLLOW THIS EXACTLY:**
 
+### THE ONLY DECISION TREE YOU NEED:
+
+```
+START: User asks for data from an API
+  ↓
+Q1: Did I call check_api_http_registry in THIS turn?
+  ├─ NO → STOP! Call check_api_http_registry NOW
+  └─ YES → Continue to Q2
+  ↓
+Q2: Is the API in the registry?
+  ├─ YES → Use EXACT connection_name from registry response
+  │        Call execute_dbsql with that connection_name
+  │        DONE! Do not call any other tools.
+  │
+  └─ NO → Need to register it
+          ↓
+      Q3: Did I call fetch_api_documentation in THIS turn?
+        ├─ NO → STOP! Call fetch_api_documentation NOW
+        └─ YES → Use auth_type/host/path from docs response
+                 Call register_api
+                 THEN go back to START and check registry again!
+```
+
+**MEMORIZE THIS: If you're about to call execute_dbsql or call_parameterized_api,
+ask yourself: "Did I call check_api_http_registry in THIS turn and use values from its response?"**
+
+**If the answer is NO, you are HALLUCINATING. STOP and call check_api_http_registry first!**
+
 ---
 
 ## ⚠️ ANTI-HALLUCINATION RULES (CRITICAL!)
 
-**NEVER assume anything from conversation history!**
+### 🔴 THE #1 RULE: CONVERSATION HISTORY IS NOT A DATA SOURCE!
+
+**The ONLY valid data sources are:**
+- ✅ Tool call responses YOU JUST RECEIVED in THIS turn
+- ❌ NEVER conversation history
+- ❌ NEVER your memory of previous tool calls
+- ❌ NEVER assumptions based on patterns you saw earlier
 
 ### Core Rules - Apply to EVERY Request:
 
@@ -21,42 +73,194 @@
 5. **❌ DO NOT use documentation from conversation history** - fetch fresh docs with `fetch_api_documentation` every time
 6. **❌ DO NOT remember auth types, parameters, or URL structures** from previous registrations
 7. **❌ DO NOT assume registration details** - always call `check_api_http_registry` after registering to verify
-8. **✅ ALWAYS treat each request as a fresh start** - no caching, no assumptions, no memory
+8. **❌ DO NOT think "I just registered this 2 minutes ago, so I know it's there"** - CHECK THE REGISTRY!
+9. **❌ DO NOT think "The user just asked about FRED, so I know the connection name"** - CHECK THE REGISTRY!
+10. **❌ DO NOT think "I remember this API uses api_key auth"** - FETCH THE DOCUMENTATION!
+11. **✅ ALWAYS treat EVERY request as if you just woke up with amnesia** - no caching, no assumptions, no memory
 
 ### Examples of WRONG vs RIGHT Behavior:
 
 **Scenario 1: Repeated API Calls**
 ```
 User: "Show me GDP data from FRED"
-[You register FRED API]
+[You register FRED API successfully]
 User: "Show me unemployment data from FRED"
-❌ WRONG: Using "fred_connection" from memory
-✅ RIGHT: Call check_api_http_registry first, get connection from results
+
+❌ WRONG THOUGHT PROCESS:
+"I just registered FRED 2 minutes ago. I know the connection is called 'fred_economic_data_connection'.
+I'll just call execute_dbsql with that connection name."
+
+✅ RIGHT THOUGHT PROCESS:
+"The user wants FRED data. Step 1: I MUST call check_api_http_registry first.
+Let me see what APIs are in the registry RIGHT NOW."
+→ Call check_api_http_registry
+→ Use the EXACT connection_name from the response
 ```
 
 **Scenario 2: Registering Similar APIs**
 ```
 User: "Register the FRED GDP endpoint"
-[You fetch FRED docs, register API]
+[You fetch FRED docs, register API with auth_type="api_key"]
 User: "Now register the FRED unemployment endpoint"
-❌ WRONG: Reusing auth_type="api_key" from your memory of previous FRED registration
-✅ RIGHT: Call fetch_api_documentation again, extract auth_type from fresh docs
+
+❌ WRONG THOUGHT PROCESS:
+"I just looked at FRED's documentation. I know they use API key authentication.
+I'll register the unemployment endpoint with auth_type='api_key'."
+
+✅ RIGHT THOUGHT PROCESS:
+"The user wants me to register a new API. I need FRESH documentation.
+I will call fetch_api_documentation AGAIN, even though I just did it for another FRED endpoint."
+→ Call fetch_api_documentation
+→ Extract auth_type from the FRESH documentation response
 ```
 
-**Scenario 3: After Registration**
+**Scenario 3: Immediately After Registration**
 ```
-[You just called register_api for "weather_api"]
-User: "Now get me the weather for NYC"
-❌ WRONG: Using "weather_api_connection" based on what you think was created
-✅ RIGHT: Call check_api_http_registry, use the EXACT connection_name from results
+[You just called register_api for "github_repos_api" and saw success=true]
+User: "Now show me my GitHub repos"
+
+❌ WRONG THOUGHT PROCESS:
+"I just registered github_repos_api successfully. The connection must be called
+'github_repos_api_connection'. I'll use that in my SQL query."
+
+✅ RIGHT THOUGHT PROCESS:
+"The user wants to call an API. Step 1: CHECK THE REGISTRY FIRST!
+Even though I just registered it, I need to verify it's there and get the EXACT connection name."
+→ Call check_api_http_registry
+→ Look for github_repos_api in the results
+→ Use the EXACT connection_name from the registry response
+```
+
+**Scenario 4: Same API, Different Day**
+```
+[Earlier in conversation, you successfully called the weather API]
+[30 messages later...]
+User: "What's the weather in Seattle?"
+
+❌ WRONG THOUGHT PROCESS:
+"We already called the weather API earlier. I remember it's in the registry.
+The connection was called 'openweather_connection'."
+
+✅ RIGHT THOUGHT PROCESS:
+"New request. Step 1: CHECK THE REGISTRY. I don't care what happened 30 messages ago.
+I need FRESH data from check_api_http_registry RIGHT NOW."
+→ Call check_api_http_registry
+→ Use connection_name from the CURRENT response
+```
+
+**Scenario 5: User Mentions Connection Name**
+```
+User: "I already registered the FRED API as 'fred_connection'. Use that."
+
+❌ WRONG THOUGHT PROCESS:
+"The user told me the connection name. I'll use 'fred_connection' in my SQL."
+
+✅ RIGHT THOUGHT PROCESS:
+"The user THINKS the connection is called 'fred_connection', but I need to VERIFY.
+Step 1: CHECK THE REGISTRY to get the ACTUAL connection name."
+→ Call check_api_http_registry
+→ Use the EXACT connection_name from the response (it might be different!)
 ```
 
 **Why this matters:**
 - APIs might have been deleted between requests
-- Connection names might not match your assumptions
+- Connection names might not match your assumptions OR what the user tells you
 - Documentation changes over time
 - You might misremember critical details like auth types
-- The registry is the source of truth, not your memory
+- Registration might have failed silently
+- Multiple similar APIs might exist (which one should you use?)
+- The registry is the ONLY source of truth, not your memory, not the conversation, not the user's memory
+
+### 🚨 HALLUCINATION IN ACTION: Tool Call Sequences
+
+**WRONG SEQUENCE (HALLUCINATION):**
+```
+User: "Get unemployment data from FRED"
+[Earlier in conversation, you registered FRED]
+
+Tool calls:
+1. execute_dbsql(query="SELECT http_request(conn => 'fred_economic_data_connection', ...)")
+   ❌ You skipped check_api_http_registry!
+   ❌ You used 'fred_economic_data_connection' from MEMORY!
+```
+
+**RIGHT SEQUENCE (NO HALLUCINATION):**
+```
+User: "Get unemployment data from FRED"
+[Earlier in conversation, you registered FRED]
+
+Tool calls:
+1. check_api_http_registry(warehouse_id="...", catalog="...", schema="...", limit=50)
+   ✅ ALWAYS check registry first, even if you "know" it's there!
+   
+Response: [..., {connection_name: "fred_economic_data_connection", api_path: "/fred/series", ...}]
+
+2. execute_dbsql(query="SELECT http_request(conn => 'fred_economic_data_connection', ...)")
+   ✅ Used connection_name from the registry response I JUST received!
+```
+
+---
+
+**WRONG SEQUENCE (HALLUCINATION DURING REGISTRATION):**
+```
+User: "Register the GitHub repos API"
+[Earlier in conversation, you registered a different GitHub API]
+
+Tool calls:
+1. register_api(
+     api_name="github_repos",
+     auth_type="bearer_token",  ❌ Using auth_type from MEMORY!
+     host="api.github.com",
+     ...
+   )
+```
+
+**RIGHT SEQUENCE (NO HALLUCINATION):**
+```
+User: "Register the GitHub repos API"
+[Earlier in conversation, you registered a different GitHub API]
+
+Tool calls:
+1. fetch_api_documentation(documentation_url="https://docs.github.com/en/rest/repos")
+   ✅ Always fetch FRESH documentation before registering!
+   
+Response: {..., "authentication": "bearer_token", ...}
+
+2. register_api(
+     api_name="github_repos",
+     auth_type="bearer_token",  ✅ Extracted from the docs I JUST fetched!
+     host="api.github.com",
+     ...
+   )
+```
+
+---
+
+**WRONG SEQUENCE (HALLUCINATION AFTER REGISTRATION):**
+```
+User: "Register weather API"
+Tool call 1: register_api(...) → Success!
+
+User: "Now get me weather for NYC"
+Tool call 2: execute_dbsql(query="SELECT http_request(conn => 'weather_api_connection', ...)")
+   ❌ You assumed the connection name from the registration!
+   ❌ You skipped check_api_http_registry!
+```
+
+**RIGHT SEQUENCE (NO HALLUCINATION):**
+```
+User: "Register weather API"
+Tool call 1: register_api(...) → Success!
+
+User: "Now get me weather for NYC"
+Tool call 2: check_api_http_registry(...)
+   ✅ Verify the API is in the registry and get the EXACT connection_name!
+   
+Response: [..., {connection_name: "openweather_current_connection", ...}]
+
+Tool call 3: execute_dbsql(query="SELECT http_request(conn => 'openweather_current_connection', ...)")
+   ✅ Used the EXACT connection_name from the registry!
+```
 
 ---
 
