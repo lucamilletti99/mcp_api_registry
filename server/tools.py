@@ -480,19 +480,29 @@ def load_tools(mcp_server):
     api_name: str,
     description: str,
     host: str,
-    api_path: str,
     auth_type: str,
     warehouse_id: str,
     catalog: str,
     schema: str,
     base_path: str = '',
     secret_value: str = None,
-    http_method: str = 'GET',
-    parameters: str | dict = None,
+    available_endpoints: list = None,
+    example_calls: list = None,
     documentation_url: str = None,
     port: int = 443
   ) -> dict:
-    """Private implementation for API registration with SQL-based connections."""
+    """Private implementation for API registration with SQL-based connections.
+    
+    ARCHITECTURE: Register API once (host + base_path), call dynamically later.
+    
+    Args:
+        available_endpoints: List of dicts with path/description/method for reference
+            Example: [{"path": "/repos", "description": "Repository operations", "method": "GET"}]
+        example_calls: List of dicts with concrete usage examples
+            Example: [{"description": "Get a repo", "path": "/repos/owner/repo", "params": {"type": "public"}}]
+    
+    Both parameters are INFORMATIONAL ONLY - users can call ANY path at runtime.
+    """
     try:
       import json
 
@@ -512,15 +522,25 @@ def load_tools(mcp_server):
         if not secret_value:
           return {'success': False, 'error': f"secret_value required for auth_type '{auth_type}'. Please provide your credential first."}
 
-      # Convert parameters to JSON string if it's a dict
-      parameters_str = None
-      if parameters:
-        if isinstance(parameters, dict):
-          parameters_str = json.dumps(parameters)
-        elif isinstance(parameters, str):
-          parameters_str = parameters
+      # Convert available_endpoints list to JSON string for storage
+      available_endpoints_str = None
+      if available_endpoints:
+        if isinstance(available_endpoints, list):
+          available_endpoints_str = json.dumps(available_endpoints)
+        elif isinstance(available_endpoints, str):
+          available_endpoints_str = available_endpoints
         else:
-          return {'success': False, 'error': f'parameters must be dict or JSON string, got {type(parameters).__name__}'}
+          return {'success': False, 'error': f'available_endpoints must be list or JSON string, got {type(available_endpoints).__name__}'}
+
+      # Convert example_calls list to JSON string for storage
+      example_calls_str = None
+      if example_calls:
+        if isinstance(example_calls, list):
+          example_calls_str = json.dumps(example_calls)
+        elif isinstance(example_calls, str):
+          example_calls_str = example_calls
+        else:
+          return {'success': False, 'error': f'example_calls must be list or JSON string, got {type(example_calls).__name__}'}
 
       api_id = str(uuid.uuid4())
       connection_name = f"{api_name.lower().replace(' ', '_')}_connection"
@@ -624,8 +644,8 @@ def load_tools(mcp_server):
 
       insert_query = f"""
 INSERT INTO {table_name}
-(api_id, api_name, description, connection_name, host, base_path, api_path,
- auth_type, secret_scope, http_method, documentation_url, parameters,
+(api_id, api_name, description, connection_name, host, base_path,
+ auth_type, secret_scope, documentation_url, available_endpoints, example_calls,
  status, user_who_requested, created_at, modified_date)
 VALUES (
   '{api_id}',
@@ -634,12 +654,11 @@ VALUES (
   '{connection_name}',
   '{host}',
   {f"'{escape_sql_string(base_path)}'" if base_path else 'NULL'},
-  '{escape_sql_string(api_path)}',
   '{auth_type}',
   {f"'{secret_scope}'" if secret_scope else 'NULL'},
-  '{http_method}',
   {f"'{escape_sql_string(documentation_url)}'" if documentation_url else 'NULL'},
-  {f"'{escape_sql_string(parameters_str)}'" if parameters_str else 'NULL'},
+  {f"'{escape_sql_string(available_endpoints_str)}'" if available_endpoints_str else 'NULL'},
+  {f"'{escape_sql_string(example_calls_str)}'" if example_calls_str else 'NULL'},
   'registered',
   '{user_email}',
   '{now}',
@@ -675,21 +694,23 @@ VALUES (
     api_name: str,
     description: str,
     host: str,
-    api_path: str,
     auth_type: str,
     warehouse_id: str,
     catalog: str,
     schema: str,
     base_path: str = '',
     secret_value: str = None,
-    http_method: str = 'GET',
-    parameters: str | dict = None,
+    available_endpoints: list = None,
+    example_calls: list = None,
     documentation_url: str = None,
     port: int = 443
   ) -> dict:
     """Register an API with automatic connection and secret setup.
 
-    This is the main tool for registering APIs. It supports three authentication types:
+    NEW ARCHITECTURE: Register API ONCE (host + base_path), call dynamically later!
+    No need to register individual endpoints - just register the API and call any path at runtime.
+
+    This tool supports three authentication types:
     - 'none': Public API with no authentication
     - 'api_key': API key passed as query parameter (e.g., FRED API)
     - 'bearer_token': Bearer token in Authorization header (e.g., GitHub API)
@@ -701,42 +722,226 @@ VALUES (
     4. Registers API metadata in registry table
 
     Args:
-        api_name: Unique name for the API (e.g., "fred_economic_data")
+        api_name: Unique name for the API (e.g., "github_api", "fred_api")
         description: What the API does
-        host: API host (e.g., "api.stlouisfed.org")
-        api_path: Endpoint path (e.g., "/fred/series/observations")
+        host: API host (e.g., "api.github.com")
         auth_type: 'none', 'api_key', or 'bearer_token'
         warehouse_id: SQL warehouse ID
         catalog: Catalog name
         schema: Schema name
-        base_path: Base path for connection (optional, e.g., "/fred")
+        base_path: Base path for API (optional, e.g., "/v1" or "/api" or "")
         secret_value: API key or bearer token (required if auth_type != 'none')
-        http_method: HTTP method (default: GET)
-        parameters: Parameter definitions as JSON string or dict (optional)
-                   Example: '{"query_params": [{"name": "filter", "type": "string", "required": false}]}'
-                   Or as dict: {"query_params": [{"name": "filter", "type": "string", "required": false}]}
+        available_endpoints: INFORMATIONAL ONLY - List of dicts with path/description/method
+            Example: [{"path": "/repos", "description": "Repository operations", "method": "GET"},
+                      {"path": "/user", "description": "User operations", "method": "GET"}]
+        example_calls: INFORMATIONAL ONLY - List of dicts with concrete usage examples
+            Example: [{"description": "Get a repo", "path": "/repos/databricks/mlflow", "params": {"type": "public"}},
+                      {"description": "List user repos", "path": "/user/repos", "params": {}}]
         documentation_url: API docs URL (optional)
         port: Connection port (default: 443)
 
     Returns:
         Dictionary with registration results
+        
+    Example:
+        register_api(
+            api_name="github_api",
+            description="GitHub REST API for repository operations",
+            host="api.github.com",
+            auth_type="bearer_token",
+            warehouse_id="abc123",
+            catalog="main",
+            schema="apis",
+            base_path="",
+            available_endpoints=[
+                {"path": "/repos", "description": "Repository operations", "method": "GET"},
+                {"path": "/user", "description": "User operations", "method": "GET"}
+            ],
+            example_calls=[
+                {"description": "Get repo", "path": "/repos/databricks/mlflow", "params": {}},
+                {"description": "List user repos", "path": "/user/repos", "params": {"type": "public"}}
+            ]
+        )
+        
+        Then call dynamically:
+        execute_api_call(api_name="github_api", path="/repos/databricks/mlflow", ...)
+        execute_api_call(api_name="github_api", path="/user/repos", ...)
+        execute_api_call(api_name="github_api", path="/orgs/databricks/members", ...)
     """
     return _register_api_impl(
       api_name=api_name,
       description=description,
       host=host,
-      api_path=api_path,
       auth_type=auth_type,
       warehouse_id=warehouse_id,
       catalog=catalog,
       schema=schema,
       base_path=base_path,
       secret_value=secret_value,
-      http_method=http_method,
-      parameters=parameters,
+      available_endpoints=available_endpoints,
+      example_calls=example_calls,
       documentation_url=documentation_url,
       port=port
     )
+
+  @mcp_server.tool
+  def execute_api_call(
+    api_name: str,
+    path: str,
+    warehouse_id: str,
+    catalog: str,
+    schema: str,
+    http_method: str = 'GET',
+    params: dict = None,
+    headers: dict = None
+  ) -> dict:
+    """Execute an API call dynamically with any path.
+    
+    This is the core tool for calling registered APIs. After an API is registered once,
+    you can call ANY path without needing to register each endpoint separately.
+    
+    ARCHITECTURE: Lookup API by name → Get connection → Call with dynamic path
+    
+    Args:
+        api_name: Name of the registered API (e.g., "github_api", "fred_api")
+        path: Dynamic path to call (e.g., "/repos/databricks/mlflow", "/user/repos", "/series/GDPC1")
+        warehouse_id: SQL warehouse ID
+        catalog: Catalog name where registry table is located
+        schema: Schema name where registry table is located
+        http_method: HTTP method (default: GET)
+        params: Query parameters as dict (e.g., {"type": "public", "per_page": "10"})
+        headers: Additional HTTP headers as dict (optional)
+    
+    Returns:
+        Dictionary with API response
+        
+    Example:
+        # After registering github_api once:
+        execute_api_call(
+            api_name="github_api",
+            path="/repos/databricks/mlflow",
+            warehouse_id="abc123",
+            catalog="main",
+            schema="apis"
+        )
+        
+        # Call a different path - no need to register!
+        execute_api_call(
+            api_name="github_api",
+            path="/user/repos",
+            warehouse_id="abc123",
+            catalog="main",
+            schema="apis",
+            params={"type": "public"}
+        )
+    """
+    try:
+      import json
+      
+      # Step 1: Look up API in registry
+      table_name = f'`{catalog}`.`{schema}`.`api_http_registry`'
+      lookup_query = f"""
+SELECT connection_name, auth_type, secret_scope, host, base_path, available_endpoints, example_calls
+FROM {table_name}
+WHERE api_name = '{api_name}'
+LIMIT 1
+"""
+      
+      result = _execute_sql_query(lookup_query, warehouse_id, catalog=None, schema=None, limit=1)
+      
+      if not result.get('success'):
+        return {'success': False, 'error': f"Failed to lookup API '{api_name}': {result.get('error')}"}
+      
+      if not result.get('data') or len(result['data']) == 0:
+        return {
+          'success': False,
+          'error': f"API '{api_name}' not found in registry. Please register it first using register_api().",
+          'hint': "Check available APIs with check_api_http_registry()"
+        }
+      
+      api_info = result['data'][0]
+      connection_name = api_info['connection_name']
+      auth_type = api_info['auth_type']
+      secret_scope = api_info['secret_scope']
+      
+      print(f"📡 Calling API: {api_name}")
+      print(f"   Connection: {connection_name}")
+      print(f"   Path: {path}")
+      print(f"   Method: {http_method}")
+      print(f"   Auth: {auth_type}")
+      
+      # Step 2: Build SQL query using http_request() function
+      # The connection already has auth configured, so we just call it
+      
+      # Build params map
+      params_sql = "map()"
+      if params:
+        param_pairs = []
+        for key, value in params.items():
+          if isinstance(value, str):
+            param_pairs.append(f"'{key}', '{value}'")
+          else:
+            param_pairs.append(f"'{key}', cast({value} as string)")
+        params_sql = f"map({', '.join(param_pairs)})"
+      
+      # Build headers map
+      headers_sql = "map()"
+      if headers:
+        header_pairs = []
+        for key, value in headers.items():
+          header_pairs.append(f"'{key}', '{value}'")
+        headers_sql = f"map({', '.join(header_pairs)})"
+      
+      # Build the http_request SQL
+      call_sql = f"""
+SELECT http_request(
+  conn => '{connection_name}',
+  method => '{http_method}',
+  path => '{path}',
+  params => {params_sql},
+  headers => {headers_sql}
+) as response
+"""
+      
+      print(f"🔍 SQL Query: {call_sql}")
+      
+      # Step 3: Execute the API call
+      call_result = _execute_sql_query(call_sql, warehouse_id, catalog=None, schema=None, limit=1)
+      
+      if not call_result.get('success'):
+        return {'success': False, 'error': f"API call failed: {call_result.get('error')}"}
+      
+      if not call_result.get('data') or len(call_result['data']) == 0:
+        return {'success': False, 'error': "No response from API"}
+      
+      response_data = call_result['data'][0].get('response', '')
+      
+      # Try to parse JSON response
+      try:
+        response_json = json.loads(response_data)
+        return {
+          'success': True,
+          'api_name': api_name,
+          'path': path,
+          'method': http_method,
+          'response': response_json,
+          'raw_response': response_data
+        }
+      except:
+        # Return raw response if not JSON
+        return {
+          'success': True,
+          'api_name': api_name,
+          'path': path,
+          'method': http_method,
+          'response': response_data
+        }
+    
+    except Exception as e:
+      print(f'❌ Error executing API call: {str(e)}')
+      import traceback
+      traceback.print_exc()
+      return {'success': False, 'error': str(e)}
 
   # Note: Old connection management tools deprecated in favor of new register_api
   # which handles connection creation automatically
