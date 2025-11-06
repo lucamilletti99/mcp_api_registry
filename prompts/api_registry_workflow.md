@@ -848,15 +848,21 @@ Please provide your bearer token for GitHub.
 #### Step 4: Wait for User to Provide Credential
 The frontend will show a secure password-masked input dialog. The user will enter their credential and click "Submit".
 
-#### Step 5: User's Response Will Contain the Credential
-The user's next message will be: `"My api key is: <actual_key>"` or `"My bearer token is: <actual_token>"`
+#### Step 5: User's Response Confirms Credential Was Provided
+The user's next message will be: `"I've securely provided my API key for [API_NAME]. You can now proceed with the registration."`
+
+**IMPORTANT:** The actual credential is NOT in the message! It's passed securely as metadata and available in context.
 
 #### Step 6: Now Register the API
+
+**After user provides credential, it's automatically available in secure context!**
+
 ```python
 register_api(
     api_name="fred_economic_data",
     auth_type="api_key",
-    secret_value="<use the credential from user's message>",
+    # NO secret_value parameter needed!
+    # The credential is already securely stored and will be used automatically
     ...
 )
 ```
@@ -866,6 +872,8 @@ register_api(
 - The marker MUST be on its own line
 - DO NOT proceed with registration until the user provides the credential
 - DO NOT make up or guess credentials
+- **DO NOT include secret_value parameter** - it's automatically retrieved from secure context
+- **NEVER extract credentials from user messages** - they are passed as metadata, not in message content
 
 ---
 

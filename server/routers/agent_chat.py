@@ -72,6 +72,7 @@ class AgentChatRequest(BaseModel):
     system_prompt: Optional[str] = None  # Optional custom system prompt
     warehouse_id: Optional[str] = None  # Selected SQL warehouse ID
     catalog_schema: Optional[str] = None  # Selected catalog.schema (format: "catalog_name.schema_name")
+    credentials: Optional[Dict[str, str]] = None  # SECURE: Credentials passed as metadata, NOT in message content
 
 
 class AgentChatResponse(BaseModel):
@@ -219,13 +220,14 @@ async def call_foundation_model(
         return response.json()
 
 
-async def execute_mcp_tool(tool_name: str, tool_args: Dict[str, Any], request: Request = None) -> str:
+async def execute_mcp_tool(tool_name: str, tool_args: Dict[str, Any], request: Request = None, credentials: Dict[str, str] = None) -> str:
     """Execute a tool directly via MCP server instance.
 
     Args:
         tool_name: Name of the tool
         tool_args: Tool arguments
         request: Optional FastAPI Request object for OBO authentication
+        credentials: Optional credentials dict (NOT included in messages/traces)
 
     Returns:
         Tool result as string
@@ -236,8 +238,8 @@ async def execute_mcp_tool(tool_name: str, tool_args: Dict[str, Any], request: R
     from fastmcp.server.http import _current_http_request
 
     try:
-        # Import the context variable from tools module
-        from server.tools import _user_token_context
+        # Import the context variables from tools module
+        from server.tools import _user_token_context, _credentials_context
 
         # Set up FastMCP context for tool execution
         context = Context(mcp)
@@ -255,14 +257,22 @@ async def execute_mcp_tool(tool_name: str, tool_args: Dict[str, Any], request: R
             else:
                 print(f'⚠️  [Tool Execution] No OBO token available for tool: {tool_name}')
 
+        # SECURE: Set credentials in context (NOT in messages/traces)
+        credentials_var = None
+        if credentials:
+            print(f'🔐 [Tool Execution] Injecting secure credentials for tool: {tool_name}')
+            credentials_var = _credentials_context.set(credentials)
+
         try:
-            # Execute the tool with token available in context
+            # Execute the tool with token and credentials available in context
             result = await mcp._tool_manager.call_tool(tool_name, tool_args)
         finally:
             # Always reset contexts
             _current_context.reset(context_token)
             if user_token_var:
                 _user_token_context.reset(user_token_var)
+            if credentials_var:
+                _credentials_context.reset(credentials_var)
 
         # Convert ToolResult to string
         if hasattr(result, 'model_dump'):
@@ -299,7 +309,8 @@ async def run_agent_loop(
     custom_system_prompt: Optional[str] = None,
     trace_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
-    catalog_schema: Optional[str] = None
+    catalog_schema: Optional[str] = None,
+    credentials: Optional[Dict[str, str]] = None
 ) -> Dict[str, Any]:
     """Run the agentic loop.
 
@@ -466,7 +477,7 @@ async def run_agent_loop(
 
                 # Execute via MCP with user request context for OBO auth
                 tool_start_time = time.time()
-                result = await execute_mcp_tool(tool_name, tool_args, request)
+                result = await execute_mcp_tool(tool_name, tool_args, request, credentials)
                 tool_duration = time.time() - tool_start_time
 
                 if trace_id and tool_span_id:
@@ -528,7 +539,7 @@ async def run_agent_loop(
 
                 # Execute via MCP with user request context for OBO auth
                 tool_start_time = time.time()
-                result = await execute_mcp_tool(tool_name, tool_args, request)
+                result = await execute_mcp_tool(tool_name, tool_args, request, credentials)
                 tool_duration = time.time() - tool_start_time
 
                 if trace_id and tool_span_id:
@@ -643,7 +654,8 @@ async def agent_chat(chat_request: AgentChatRequest, request: Request) -> AgentC
             custom_system_prompt=chat_request.system_prompt,
             trace_id=trace_id,
             warehouse_id=chat_request.warehouse_id,
-            catalog_schema=chat_request.catalog_schema
+            catalog_schema=chat_request.catalog_schema,
+            credentials=chat_request.credentials  # SECURE: Pass credentials as metadata
         )
 
         # Complete root span

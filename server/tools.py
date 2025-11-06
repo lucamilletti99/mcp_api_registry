@@ -18,6 +18,11 @@ from contextvars import ContextVar
 # This is set by execute_mcp_tool() before calling tools
 _user_token_context: ContextVar[str | None] = ContextVar('user_token', default=None)
 
+# Context variable to store credentials securely (NOT in messages!)
+# This is set by execute_mcp_tool() before calling tools
+# Format: {"api_key": "xxx", "bearer_token": "yyy"}
+_credentials_context: ContextVar[dict | None] = ContextVar('credentials', default=None)
+
 
 def get_workspace_client() -> WorkspaceClient:
   """Get a WorkspaceClient with on-behalf-of user authentication.
@@ -495,8 +500,17 @@ def load_tools(mcp_server):
       if auth_type not in ['none', 'api_key', 'bearer_token']:
         return {'success': False, 'error': f"auth_type must be 'none', 'api_key', or 'bearer_token', got: {auth_type}"}
 
+      # SECURE: If secret_value not provided, try to get from credentials context
+      # This allows credentials to be passed as metadata instead of in chat messages
       if auth_type in ['api_key', 'bearer_token'] and not secret_value:
-        return {'success': False, 'error': f"secret_value required for auth_type '{auth_type}'"}
+        credentials = _credentials_context.get()
+        if credentials:
+          secret_value = credentials.get(auth_type)
+          if secret_value:
+            print(f'🔐 [register_api] Using credential from secure context for {api_name}')
+        
+        if not secret_value:
+          return {'success': False, 'error': f"secret_value required for auth_type '{auth_type}'. Please provide your credential first."}
 
       # Convert parameters to JSON string if it's a dict
       parameters_str = None

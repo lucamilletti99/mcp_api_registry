@@ -126,6 +126,12 @@ export function ChatPageAgent({
   const [credentialType, setCredentialType] = useState<"api_key" | "bearer_token">("api_key");
   const [credentialValue, setCredentialValue] = useState<string>("");
   const [pendingApiName, setPendingApiName] = useState<string>("");
+  
+  // Secure credential storage - stored in session, not in messages!
+  const [storedCredentials, setStoredCredentials] = useState<{
+    api_key?: string;
+    bearer_token?: string;
+  }>({});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
@@ -404,6 +410,8 @@ export function ChatPageAgent({
           system_prompt: systemPrompt || undefined, // Include custom system prompt if set
           warehouse_id: selectedWarehouse || undefined, // Pass selected warehouse
           catalog_schema: selectedCatalogSchema || undefined, // Pass selected catalog.schema
+          // Pass credentials as metadata, NOT in message content!
+          credentials: storedCredentials,
         }),
       });
 
@@ -559,6 +567,8 @@ export function ChatPageAgent({
           system_prompt: systemPrompt || undefined,
           warehouse_id: selectedWarehouse || undefined, // Pass selected warehouse
           catalog_schema: selectedCatalogSchema || undefined, // Pass selected catalog.schema
+          // Pass credentials as metadata, NOT in message content!
+          credentials: storedCredentials,
         }),
       });
 
@@ -1523,18 +1533,22 @@ export function ChatPageAgent({
               onClick={async () => {
                 if (!credentialValue.trim()) return;
                 
-                // Add credential to message and send
-                const credentialMessage = `My ${credentialType === "api_key" ? "API key" : "bearer token"} is: ${credentialValue}`;
-                setShowCredentialDialog(false);
+                // SECURE: Store credential in session state, NOT in message content!
+                const newCredentials = {
+                  ...storedCredentials,
+                  [credentialType]: credentialValue,
+                };
+                setStoredCredentials(newCredentials);
                 
-                // Send message with credential
-                setInput(credentialMessage);
+                setShowCredentialDialog(false);
                 setCredentialValue("");
                 
-                // Automatically send the message
+                // Send a safe message that doesn't contain the actual credential
+                const safeMessage = `I've securely provided my ${credentialType === "api_key" ? "API key" : "bearer token"}${pendingApiName ? ` for ${pendingApiName}` : ""}. You can now proceed with the registration.`;
+                
                 const userMessage: Message = {
                   role: "user",
-                  content: credentialMessage,
+                  content: safeMessage,
                 };
 
                 setMessages((prev) => [...prev, userMessage, {
@@ -1555,6 +1569,8 @@ export function ChatPageAgent({
                       system_prompt: systemPrompt || undefined,
                       warehouse_id: selectedWarehouse || undefined,
                       catalog_schema: selectedCatalogSchema || undefined,
+                      // Pass credentials as metadata, NOT in message content!
+                      credentials: newCredentials,
                     }),
                   });
 
