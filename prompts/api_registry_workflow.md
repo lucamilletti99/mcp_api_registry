@@ -52,12 +52,17 @@ Q2: Is API registered? (check by api_name like "github_api")
 ✅ RIGHT: Register "fred_api" ONCE, call any path
 ```
 
-### RULE 2: Check registry before every call
+### RULE 2: Check registry AND available_endpoints before every call
 ```
 Before execute_api_call:
 □ Did I call check_api_http_registry in THIS turn?
 □ Am I using api_name from the registry response?
-If NO to either → STOP! That's hallucination!
+□ Did I check the 'available_endpoints_parsed' field?
+□ Is the path I'm using listed in '_endpoint_paths'?
+If NO to ANY → STOP! That's hallucination!
+
+MANDATORY: check_api_http_registry returns 'available_endpoints_parsed' 
+with documented paths. DO NOT call paths that aren't listed!
 ```
 
 ### RULE 3: Always fetch docs before registering
@@ -85,14 +90,40 @@ If execute_api_call returns 404 (Not Found):
 
 ## 📚 EXAMPLES
 
-### Calling Registered API
+### Calling Registered API (CORRECT FLOW)
 ```
-1. check_api_http_registry(...) → Found "github_api"
-2. execute_api_call(
-     api_name="github_api",
-     path="/repos/databricks/mlflow",  ← Dynamic!
+1. check_api_http_registry(...) 
+   → Returns:
+   {
+     "api_name": "treasury_fiscal_data",
+     "available_endpoints_parsed": [
+       {"path": "/v1/accounting", "description": "..."},
+       {"path": "/v2/accounting", "description": "..."}
+     ],
+     "_endpoint_paths": ["/v1/accounting", "/v2/accounting"]
+   }
+
+2. ✅ CHECK: Is "/v1/accounting" in _endpoint_paths? YES!
+
+3. execute_api_call(
+     api_name="treasury_fiscal_data",
+     path="/v1/accounting/od/rates_of_exchange",  ← Starts with listed path!
      ...
    )
+```
+
+### WRONG: Guessing Paths
+```
+1. check_api_http_registry(...) 
+   → "_endpoint_paths": ["/v1/accounting", "/v2/accounting"]
+
+2. ❌ WRONG: Assume /v3/accounting exists
+   execute_api_call(path="/v3/accounting/...")  ← NOT in list!
+   → 404 error
+
+3. ❌ WRONG: Assume /v2/accounting has same sub-paths as /v1
+   execute_api_call(path="/v2/accounting/od/rates_of_exchange")  
+   → 404 error (sub-paths differ between versions!)
 ```
 
 ### Registering New API
@@ -175,16 +206,23 @@ Please provide your API key.
 ```
 □ Called check_api_http_registry in THIS turn?
 □ Using api_name from registry response?
+□ Checked 'available_endpoints_parsed' or '_endpoint_paths' from registry?
+□ Is my path listed in the available endpoints?
 □ Path is dynamic (from user request)?
 □ If previous call returned 404, am I using a DIFFERENT path?
+
+🚨 CRITICAL: DO NOT CALL A PATH UNLESS IT'S IN 'available_endpoints_parsed'!
 ```
 
 **After execute_api_call returns 404:**
 ```
 □ DO NOT retry the same path!
-□ Check available_endpoints from check_api_http_registry
-□ Use ONLY paths listed in available_endpoints
+□ Go back to check_api_http_registry response
+□ Look at 'available_endpoints_parsed' field
+□ Use ONLY paths listed there
 □ Inform user which paths are actually available
+
+🚨 404 means: "This path doesn't exist. Check available_endpoints_parsed!"
 ```
 
 **Before register_api:**
@@ -211,8 +249,14 @@ Please provide your API key.
 ✅ available_endpoints is INFORMATIONAL - users can call ANY path
 ❌ Restrict users to only predefined paths
 
+✅ Check available_endpoints_parsed FIRST → Use listed path → Works!
+❌ Guess a path → Try it → Get 404 → Guess another path
+
 ✅ Get 404 → Check available_endpoints → Try a path that's listed → Works!
 ❌ Get 404 → Retry same path → Get 404 again → Retry again
 
 ✅ Get 404 → "That path doesn't exist. Try /v1/accounting instead"
 ❌ Get 404 → Keep trying different variations without checking docs
+
+✅ "_endpoint_paths": ["/v1/accounting"] → Only call /v1/accounting paths
+❌ "_endpoint_paths": ["/v1/accounting"] → Assume /v2/accounting also works

@@ -1165,7 +1165,7 @@ SELECT http_request(
 
     result = _execute_sql_query(query, warehouse_id, catalog=None, schema=None, limit=limit)
 
-    # Add context to the result
+    # Add context to the result and parse available_endpoints
     if result.get('success'):
       result['registry_info'] = {
         'catalog': catalog,
@@ -1174,6 +1174,34 @@ SELECT http_request(
         'full_table_name': table_name,
         'description': 'API Registry using Unity Catalog HTTP Connections for secure credential management',
       }
+      
+      # Parse and highlight available_endpoints for each API
+      rows = result.get('data', {}).get('rows', [])
+      for row in rows:
+        # Parse available_endpoints JSON if it exists
+        if row.get('available_endpoints'):
+          try:
+            import json
+            endpoints = json.loads(row['available_endpoints'])
+            row['available_endpoints_parsed'] = endpoints
+            row['_endpoint_paths'] = [ep.get('path') for ep in endpoints]
+          except:
+            pass
+        
+        # Parse example_calls JSON if it exists
+        if row.get('example_calls'):
+          try:
+            import json
+            examples = json.loads(row['example_calls'])
+            row['example_calls_parsed'] = examples
+          except:
+            pass
+      
+      # Add a summary for the LLM
+      result['_IMPORTANT_READ_THIS'] = (
+        "⚠️ BEFORE calling execute_api_call, CHECK the 'available_endpoints_parsed' field for each API. "
+        "This tells you which paths are documented to exist. DO NOT guess or assume paths - use only what's listed!"
+      )
 
     return result
 
