@@ -913,24 +913,60 @@ SELECT http_request(
 ) as response
 """
       
-      print(f"🔍 SQL Query: {call_sql}")
+      print(f"=" * 80)
+      print(f"🔍 EXECUTING SQL QUERY:")
+      print(call_sql)
+      print(f"=" * 80)
       
       # Step 3: Execute the API call
       call_result = _execute_sql_query(call_sql, warehouse_id, catalog=None, schema=None, limit=1)
       
       if not call_result.get('success'):
-        return {'success': False, 'error': f"API call failed: {call_result.get('error')}"}
+        error_msg = call_result.get('error')
+        print(f"❌ SQL execution failed: {error_msg}")
+        return {
+          'success': False,
+          'error': f"API call failed: {error_msg}",
+          'sql_query': call_sql,
+          'full_path': full_path
+        }
       
       # _execute_sql_query returns data as {'columns': [...], 'rows': [...]}
       response_rows = call_result.get('data', {}).get('rows', [])
       if not response_rows or len(response_rows) == 0:
-        return {'success': False, 'error': "No response from API"}
+        print(f"❌ No response rows from API")
+        return {
+          'success': False,
+          'error': "No response from API",
+          'sql_query': call_sql,
+          'full_path': full_path
+        }
       
       response_data = response_rows[0].get('response', '')
       
       # Try to parse JSON response
       try:
         response_json = json.loads(response_data)
+        
+        # Check if response indicates an error (404, 500, etc.)
+        status_code = response_json.get('status_code', '200')
+        if status_code == '404':
+          print(f"⚠️  API returned 404 - Path not found: {full_path}")
+          return {
+            'success': False,
+            'error': f"404 Not Found - The path '{full_path}' does not exist on this API",
+            'status_code': 404,
+            'api_name': api_name,
+            'base_path': base_path,
+            'dynamic_path': path,
+            'full_path': full_path,
+            'method': http_method,
+            'sql_query': call_sql,
+            'response': response_json
+          }
+        
+        # Success response
+        print(f"✅ API call successful (status: {status_code})")
         return {
           'success': True,
           'api_name': api_name,
@@ -938,11 +974,14 @@ SELECT http_request(
           'dynamic_path': path,
           'full_path': full_path,
           'method': http_method,
+          'status_code': status_code,
+          'sql_query': call_sql,
           'response': response_json,
           'raw_response': response_data
         }
       except:
         # Return raw response if not JSON
+        print(f"⚠️  Response is not JSON, returning raw data")
         return {
           'success': True,
           'api_name': api_name,
@@ -950,6 +989,7 @@ SELECT http_request(
           'dynamic_path': path,
           'full_path': full_path,
           'method': http_method,
+          'sql_query': call_sql,
           'response': response_data
         }
     
