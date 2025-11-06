@@ -131,6 +131,13 @@ export function ChatPageAgent({
     description: string;
     method: string;
   }>>([]);
+  const [selectedEndpoints, setSelectedEndpoints] = useState<Set<number>>(new Set());
+  const [endpointRegistrationData, setEndpointRegistrationData] = useState<{
+    api_name?: string;
+    host?: string;
+    base_path?: string;
+    auth_type?: string;
+  } | null>(null);
   
   // Secure credential storage - stored in session, not in messages!
   const [storedCredentials, setStoredCredentials] = useState<{
@@ -437,29 +444,41 @@ export function ChatPageAgent({
         return;
       }
 
-      // Check if response contains credential request markers
+      // Check if response contains markers
       const responseText = data.response;
       const needsApiKey = responseText.includes("[CREDENTIAL_REQUEST:API_KEY]");
       const needsBearerToken = responseText.includes("[CREDENTIAL_REQUEST:BEARER_TOKEN]");
+      const hasEndpointOptions = responseText.includes("[ENDPOINT_OPTIONS:");
       
       // Extract API name if mentioned (look for it in the response)
       let apiName = "";
-      const apiNameMatch = responseText.match(/for\s+([A-Za-z0-9_\s-]+?)[\.\n\[]|provide your (?:API key|bearer token) for ([A-Za-z0-9_\s-]+)/i);
+      const apiNameMatch = responseText.match(/for\s+([A-Za-z0-9_\s-]+?)[\.\n\[]|provide your (?:API key|bearer token) for ([A-Za-z0-9_\s-]+)|register.*?([A-Za-z0-9_\s-]+)\s+(?:API|api|endpoint)/i);
       if (apiNameMatch) {
-        apiName = (apiNameMatch[1] || apiNameMatch[2] || "").trim();
+        apiName = (apiNameMatch[1] || apiNameMatch[2] || apiNameMatch[3] || "").trim();
       }
 
-      // Extract endpoints information if present
+      // Extract endpoint options information if present
       let endpoints: Array<{path: string; description: string; method: string}> = [];
-      const endpointsMatch = responseText.match(/\[ENDPOINTS:(\{.*?\})\]/);
-      if (endpointsMatch) {
+      let registrationData: any = null;
+      const endpointOptionsMatch = responseText.match(/\[ENDPOINT_OPTIONS:(\{.*?\})\]/);
+      if (endpointOptionsMatch) {
         try {
-          const endpointsData = JSON.parse(endpointsMatch[1]);
-          if (endpointsData.endpoints && Array.isArray(endpointsData.endpoints)) {
-            endpoints = endpointsData.endpoints;
+          const optionsData = JSON.parse(endpointOptionsMatch[1]);
+          if (optionsData.endpoints && Array.isArray(optionsData.endpoints)) {
+            endpoints = optionsData.endpoints;
+            registrationData = {
+              api_name: optionsData.api_name,
+              host: optionsData.host,
+              base_path: optionsData.base_path,
+              auth_type: optionsData.auth_type,
+            };
+            // Use auth_type from data if API name not found in text
+            if (!apiName && optionsData.api_name) {
+              apiName = optionsData.api_name.replace(/_/g, ' ');
+            }
           }
         } catch (e) {
-          console.error("Failed to parse endpoints data:", e);
+          console.error("Failed to parse endpoint options data:", e);
         }
       }
 
@@ -467,7 +486,7 @@ export function ChatPageAgent({
       let displayedResponse = responseText
         .replace(/\[CREDENTIAL_REQUEST:API_KEY\]/g, "")
         .replace(/\[CREDENTIAL_REQUEST:BEARER_TOKEN\]/g, "")
-        .replace(/\[ENDPOINTS:\{.*?\}\]/g, "")
+        .replace(/\[ENDPOINT_OPTIONS:\{.*?\}\]/g, "")
         .trim();
 
       // Add the assistant's response
@@ -481,11 +500,15 @@ export function ChatPageAgent({
         },
       ]);
 
-      // Show credential dialog if credentials are needed
-      if (needsApiKey || needsBearerToken) {
+      // Show endpoint selection dialog if endpoints are available
+      // Dialog will show credential input ONLY if authentication is required
+      if (hasEndpointOptions && endpoints.length > 0) {
+        const requiresAuth = needsApiKey || needsBearerToken;
         setCredentialType(needsBearerToken ? "bearer_token" : "api_key");
         setPendingApiName(apiName);
         setPendingEndpoints(endpoints);
+        setEndpointRegistrationData(registrationData);
+        setSelectedEndpoints(new Set(endpoints.map((_, idx) => idx))); // Select all by default
         setShowCredentialDialog(true);
       }
 
@@ -1505,84 +1528,128 @@ export function ChatPageAgent({
         }`}>
           <DialogHeader>
             <DialogTitle className={isDark ? "text-white" : "text-gray-900"}>
-              🔐 Secure Credential Input
+              {endpointRegistrationData?.auth_type && endpointRegistrationData.auth_type !== "none" 
+                ? "🔐 Endpoint Selection & Credential Input"
+                : "📡 Select Endpoints to Register"}
             </DialogTitle>
             <DialogDescription className={isDark ? "text-white/60" : "text-gray-600"}>
               {pendingApiName && `For ${pendingApiName} API - `}
-              Enter your {credentialType === "api_key" ? "API Key" : "Bearer Token"} securely. 
-              Your credential will be encrypted and stored in Databricks Secrets.
+              {endpointRegistrationData?.auth_type && endpointRegistrationData.auth_type !== "none"
+                ? `Select endpoints to register and provide your ${credentialType === "api_key" ? "API Key" : "Bearer Token"}.`
+                : "Select which endpoints you want to register."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            {/* Show available endpoints if provided */}
+            {/* Show endpoint selection if provided */}
             {pendingEndpoints.length > 0 && (
               <div className={`rounded-lg border p-4 space-y-3 ${
                 isDark ? "border-white/20 bg-black/10" : "border-gray-200 bg-gray-50"
               }`}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-lg">📡</span>
-                  <h4 className={`font-semibold text-sm ${isDark ? "text-white" : "text-gray-900"}`}>
-                    Available Endpoints ({pendingEndpoints.length})
-                  </h4>
-                </div>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {pendingEndpoints.map((endpoint, idx) => (
-                    <div 
-                      key={idx}
-                      className={`text-xs p-2 rounded ${
-                        isDark ? "bg-white/5" : "bg-white"
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">📡</span>
+                    <h4 className={`font-semibold text-sm ${isDark ? "text-white" : "text-gray-900"}`}>
+                      Select Endpoints to Register ({selectedEndpoints.size}/{pendingEndpoints.length})
+                    </h4>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setSelectedEndpoints(new Set(pendingEndpoints.map((_, idx) => idx)))}
+                      className={`text-xs px-2 py-1 rounded ${
+                        isDark ? "hover:bg-white/10 text-blue-400" : "hover:bg-gray-200 text-blue-600"
                       }`}
                     >
-                      <div className="flex items-center gap-2 mb-1">
-                        <code className={`font-mono font-medium ${
-                          isDark ? "text-blue-400" : "text-blue-600"
-                        }`}>
-                          {endpoint.method}
-                        </code>
-                        <code className={`font-mono text-xs ${
-                          isDark ? "text-green-400" : "text-green-600"
-                        }`}>
-                          {endpoint.path}
-                        </code>
+                      Select All
+                    </button>
+                    <button
+                      onClick={() => setSelectedEndpoints(new Set())}
+                      className={`text-xs px-2 py-1 rounded ${
+                        isDark ? "hover:bg-white/10 text-gray-400" : "hover:bg-gray-200 text-gray-600"
+                      }`}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {pendingEndpoints.map((endpoint, idx) => (
+                    <label
+                      key={idx}
+                      className={`flex items-start gap-3 p-3 rounded cursor-pointer transition-colors ${
+                        selectedEndpoints.has(idx)
+                          ? isDark ? "bg-blue-500/20 border border-blue-500/50" : "bg-blue-50 border border-blue-200"
+                          : isDark ? "bg-white/5 hover:bg-white/10" : "bg-white hover:bg-gray-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedEndpoints.has(idx)}
+                        onChange={(e) => {
+                          const newSelected = new Set(selectedEndpoints);
+                          if (e.target.checked) {
+                            newSelected.add(idx);
+                          } else {
+                            newSelected.delete(idx);
+                          }
+                          setSelectedEndpoints(newSelected);
+                        }}
+                        className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <code className={`font-mono font-medium text-xs ${
+                            isDark ? "text-blue-400" : "text-blue-600"
+                          }`}>
+                            {endpoint.method}
+                          </code>
+                          <code className={`font-mono text-xs ${
+                            isDark ? "text-green-400" : "text-green-600"
+                          }`}>
+                            {endpoint.path}
+                          </code>
+                        </div>
+                        <p className={`text-xs ${isDark ? "text-white/60" : "text-gray-600"}`}>
+                          {endpoint.description}
+                        </p>
                       </div>
-                      <p className={`text-xs ${isDark ? "text-white/60" : "text-gray-600"}`}>
-                        {endpoint.description}
-                      </p>
-                    </div>
+                    </label>
                   ))}
                 </div>
                 <p className={`text-xs pt-2 border-t ${
                   isDark ? "text-white/40 border-white/10" : "text-gray-500 border-gray-200"
                 }`}>
-                  💡 These endpoints will be available once you provide your credential
+                  💡 Select the endpoints you want to register. You can always register more later.
                 </p>
               </div>
             )}
             
-            <div className="space-y-2">
-              <label className={`text-sm font-medium ${isDark ? "text-white" : "text-gray-900"}`}>
-                {credentialType === "api_key" ? "API Key" : "Bearer Token"}
-              </label>
-              <Input
-                type="password"
-                placeholder={credentialType === "api_key" ? "Enter your API key..." : "Enter your bearer token..."}
-                value={credentialValue}
-                onChange={(e) => setCredentialValue(e.target.value)}
-                className={`font-mono ${
-                  isDark
-                    ? "bg-black/20 border-white/20 text-white placeholder:text-white/40"
-                    : "bg-gray-50 border-gray-300 text-gray-900 placeholder:text-gray-400"
-                }`}
-                autoFocus
-              />
-              <p className={`text-xs ${isDark ? "text-white/40" : "text-gray-500"}`}>
-                • Your credential is masked for security
-                <br />
-                • Stored encrypted in Databricks secret scopes
-                <br />
-                • Never logged or displayed in plain text
-              </p>
-            </div>
+            {/* Show credential input ONLY if authentication is required */}
+            {endpointRegistrationData?.auth_type && endpointRegistrationData.auth_type !== "none" && (
+              <div className="space-y-2">
+                <label className={`text-sm font-medium ${isDark ? "text-white" : "text-gray-900"}`}>
+                  {credentialType === "api_key" ? "API Key" : "Bearer Token"} <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="password"
+                  placeholder={credentialType === "api_key" ? "Enter your API key..." : "Enter your bearer token..."}
+                  value={credentialValue}
+                  onChange={(e) => setCredentialValue(e.target.value)}
+                  className={`font-mono ${
+                    isDark
+                      ? "bg-black/20 border-white/20 text-white placeholder:text-white/40"
+                      : "bg-gray-50 border-gray-300 text-gray-900 placeholder:text-gray-400"
+                  }`}
+                  autoFocus
+                />
+                <p className={`text-xs ${isDark ? "text-white/40" : "text-gray-500"}`}>
+                  • Your credential is masked for security
+                  <br />
+                  • Stored encrypted in Databricks secret scopes
+                  <br />
+                  • Never logged or displayed in plain text
+                </p>
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-3">
             <Button
@@ -1597,20 +1664,37 @@ export function ChatPageAgent({
             </Button>
             <Button
               onClick={async () => {
-                if (!credentialValue.trim()) return;
+                // Require credential only if auth is needed
+                const requiresAuth = endpointRegistrationData?.auth_type && endpointRegistrationData.auth_type !== "none";
+                if (requiresAuth && !credentialValue.trim()) return;
                 
                 // SECURE: Store credential in session state, NOT in message content!
-                const newCredentials = {
-                  ...storedCredentials,
-                  [credentialType]: credentialValue,
-                };
-                setStoredCredentials(newCredentials);
+                // Only store if auth is required
+                if (requiresAuth) {
+                  const newCredentials = {
+                    ...storedCredentials,
+                    [credentialType]: credentialValue,
+                  };
+                  setStoredCredentials(newCredentials);
+                }
                 
                 setShowCredentialDialog(false);
                 setCredentialValue("");
                 
-                // Send a safe message that doesn't contain the actual credential
-                const safeMessage = `I've securely provided my ${credentialType === "api_key" ? "API key" : "bearer token"}${pendingApiName ? ` for ${pendingApiName}` : ""}. You can now proceed with the registration.`;
+                // Build message with selected endpoints info
+                const selectedEndpointsList = Array.from(selectedEndpoints)
+                  .map(idx => pendingEndpoints[idx])
+                  .map(ep => ep.path)
+                  .join(", ");
+                
+                // Build appropriate message based on auth requirement (requiresAuth already declared above)
+                const safeMessage = selectedEndpoints.size > 0
+                  ? requiresAuth
+                    ? `I've securely provided my ${credentialType === "api_key" ? "API key" : "bearer token"}${pendingApiName ? ` for ${pendingApiName}` : ""}. Please register these ${selectedEndpoints.size} endpoint(s): ${selectedEndpointsList}`
+                    : `Please register these ${selectedEndpoints.size} endpoint(s) for ${pendingApiName || "the API"}: ${selectedEndpointsList}`
+                  : requiresAuth
+                    ? `I've securely provided my ${credentialType === "api_key" ? "API key" : "bearer token"}${pendingApiName ? ` for ${pendingApiName}` : ""}.`
+                    : `Ready to register ${pendingApiName || "the API"}.`;
                 
                 const userMessage: Message = {
                   role: "user",
@@ -1684,7 +1768,10 @@ export function ChatPageAgent({
                   setInput("");
                 }
               }}
-              disabled={!credentialValue.trim()}
+              disabled={
+                (endpointRegistrationData?.auth_type && endpointRegistrationData.auth_type !== "none" && !credentialValue.trim()) ||
+                (pendingEndpoints.length > 0 && selectedEndpoints.size === 0)
+              }
               className={`${
                 isDark
                   ? "bg-[#2C555C] hover:bg-[#24494F] text-white"

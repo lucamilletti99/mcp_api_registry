@@ -822,8 +822,28 @@ fetch_api_documentation(documentation_url="...")
 #### Step 2: Determine Auth Type from Documentation
 Analyze the response to determine if it needs `api_key` or `bearer_token`.
 
-#### Step 3: Request Credential Using the Marker
-**YOU MUST include the exact marker AND list available endpoints:**
+#### Step 3: Show Available Endpoints (Always) + Request Credential (If Required)
+
+**CRITICAL: ALWAYS show endpoint selection via [ENDPOINT_OPTIONS] marker!**
+**ONLY include credential request markers if authentication is required!**
+
+**Scenario A: Public API (auth_type="none") - No Credential Needed:**
+```
+📡 Endpoints Available
+
+I've analyzed the Treasury Fiscal Data API documentation. This is a public API (no authentication required).
+
+I found several useful endpoints. Please select which ones you want to register.
+
+Available endpoints:
+- /v1/accounting/od/rates_of_exchange - Foreign exchange rates
+- /v1/debt/mspd/mspd_table_1 - Monthly statement of public debt
+- /v1/accounting/dts/dts_table_1 - Daily treasury statement
+
+[ENDPOINT_OPTIONS:{"api_name":"treasury_fiscal_data","host":"api.fiscaldata.treasury.gov","base_path":"/services/api/fiscal_service","auth_type":"none","endpoints":[{"path":"/v1/accounting/od/rates_of_exchange","description":"Foreign exchange rates","method":"GET","params":{}},{"path":"/v1/debt/mspd/mspd_table_1","description":"Monthly statement of public debt","method":"GET","params":{}},{"path":"/v1/accounting/dts/dts_table_1","description":"Daily treasury statement","method":"GET","params":{}}]}]
+```
+
+**Scenario B: Authenticated API (auth_type="api_key" or "bearer_token") - Credential Required:**
 
 **For API Key:**
 ```
@@ -831,15 +851,17 @@ Analyze the response to determine if it needs `api_key` or `bearer_token`.
 
 I've analyzed the FRED API documentation. This API requires an API key for authentication.
 
-Available endpoints you can use with this API:
+I found several useful endpoints. You'll be able to select which ones to register after providing your credential.
+
+Available endpoints:
 - /fred/series/observations - Get economic data for a specific series (GDP, unemployment, etc.)
 - /fred/series - Get series metadata and description
 - /fred/category - Browse economic data categories
 
-Please provide your API key for FRED to register these endpoints.
+Please provide your API key for FRED.
 
 [CREDENTIAL_REQUEST:API_KEY]
-[ENDPOINTS:{"endpoints":[{"path":"/fred/series/observations","description":"Get economic data for a specific series (GDP, unemployment, etc.)","method":"GET"},{"path":"/fred/series","description":"Get series metadata and description","method":"GET"},{"path":"/fred/category","description":"Browse economic data categories","method":"GET"}]}]
+[ENDPOINT_OPTIONS:{"api_name":"fred_economic_data","host":"api.stlouisfed.org","base_path":"/fred","auth_type":"api_key","endpoints":[{"path":"/series/observations","description":"Get economic data for a specific series (GDP, unemployment, etc.)","method":"GET","params":{"series_id":{"required":true,"type":"string","description":"Series identifier like GDPC1"}}},{"path":"/series","description":"Get series metadata and description","method":"GET","params":{"series_id":{"required":true,"type":"string","description":"Series identifier"}}},{"path":"/category","description":"Browse economic data categories","method":"GET","params":{"category_id":{"required":false,"type":"string","description":"Category ID to browse"}}}]}]
 ```
 
 **For Bearer Token:**
@@ -848,42 +870,93 @@ Please provide your API key for FRED to register these endpoints.
 
 I've analyzed the GitHub API documentation. This API requires a bearer token for authentication.
 
-Available endpoints you can use with this API:
+I found several useful endpoints. You'll be able to select which ones to register after providing your credential.
+
+Available endpoints:
 - /user/repos - List authenticated user's repositories
 - /repos/{owner}/{repo} - Get repository details
 - /repos/{owner}/{repo}/commits - Get repository commits
 
-Please provide your bearer token for GitHub to register these endpoints.
+Please provide your bearer token for GitHub.
 
 [CREDENTIAL_REQUEST:BEARER_TOKEN]
-[ENDPOINTS:{"endpoints":[{"path":"/user/repos","description":"List authenticated user's repositories","method":"GET"},{"path":"/repos/{owner}/{repo}","description":"Get repository details","method":"GET"},{"path":"/repos/{owner}/{repo}/commits","description":"Get repository commits","method":"GET"}]}]
+[ENDPOINT_OPTIONS:{"api_name":"github_api","host":"api.github.com","base_path":"","auth_type":"bearer_token","endpoints":[{"path":"/user/repos","description":"List authenticated user's repositories","method":"GET","params":{"type":{"required":false,"type":"string","description":"Repository type filter"}}},{"path":"/repos/{owner}/{repo}","description":"Get repository details","method":"GET","params":{"owner":{"required":true,"type":"string","description":"Repository owner"},"repo":{"required":true,"type":"string","description":"Repository name"}}},{"path":"/repos/{owner}/{repo}/commits","description":"Get repository commits","method":"GET","params":{"owner":{"required":true,"type":"string","description":"Repository owner"},"repo":{"required":true,"type":"string","description":"Repository name"}}}]}]
 ```
 
 **🚨 CRITICAL FORMAT RULES:**
 - Always list 2-5 most useful endpoints from the documentation
-- Include the `[ENDPOINTS:{...}]` marker with JSON data
+- Include the `[ENDPOINT_OPTIONS:{...}]` marker with full registration data
 - JSON must be valid and on a single line
-- Each endpoint needs: path, description, method
+- Must include: api_name, host, base_path, auth_type, endpoints array
+- Each endpoint needs: path, description, method, params (optional)
 
-#### Step 4: Wait for User to Provide Credential
-The frontend will show a secure password-masked input dialog. The user will enter their credential and click "Submit".
+#### Step 4: User Selects Endpoints (and Provides Credential if Required)
 
-#### Step 5: User's Response Confirms Credential Was Provided
-The user's next message will be: `"I've securely provided my API key for [API_NAME]. You can now proceed with the registration."`
+The frontend shows a dialog with:
+1. **ALWAYS**: Endpoint selection (multi-select checkboxes with all endpoints)
+2. **ONLY IF AUTH REQUIRED**: Credential input (password-masked)
 
-**IMPORTANT:** The actual credential is NOT in the message! It's passed securely as metadata and available in context.
+**For Public APIs (auth_type="none"):**
+- Dialog title: "📡 Select Endpoints to Register"
+- Shows only endpoint selection
+- User clicks "Submit" after selecting endpoints
 
-#### Step 6: Now Register the API
+**For Authenticated APIs (auth_type="api_key" or "bearer_token"):**
+- Dialog title: "🔐 Endpoint Selection & Credential Input"
+- Shows endpoint selection + credential input field
+- User clicks "Submit" after selecting endpoints AND entering credential
 
-**After user provides credential, it's automatically available in secure context!**
+#### Step 5: User's Response Includes Selected Endpoints
+
+**For Public APIs:**
+`"Please register these 2 endpoint(s) for Treasury Fiscal Data: /v1/accounting/od/rates_of_exchange, /v1/debt/mspd/mspd_table_1"`
+
+**For Authenticated APIs:**
+`"I've securely provided my API key for FRED. Please register these 2 endpoint(s): /series/observations, /series"`
+
+**IMPORTANT:** 
+- For authenticated APIs: Credential is NOT in the message! It's passed securely as metadata.
+- The user has pre-selected which endpoints to register.
+- Register ONLY the endpoints the user selected.
+
+#### Step 6: Register ONLY the Selected Endpoints
+
+**For each endpoint the user selected, call register_api separately:**
 
 ```python
+# User selected: /series/observations, /series
+# Register each one
+
 register_api(
-    api_name="fred_economic_data",
+    api_name="fred_series_observations",  # Unique name for this endpoint
+    description="Get economic data for a specific series (GDP, unemployment, etc.)",
+    host="api.stlouisfed.org",
+    base_path="/fred",
+    api_path="/series/observations",
     auth_type="api_key",
-    # NO secret_value parameter needed!
-    # The credential is already securely stored and will be used automatically
-    ...
+    # NO secret_value parameter - automatically from secure context!
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>",
+    http_method="GET",
+    documentation_url="https://fred.stlouisfed.org/docs/api/",
+    parameters={"query_params": [{"name": "series_id", ...}]}
+)
+
+register_api(
+    api_name="fred_series",  # Different name for second endpoint
+    description="Get series metadata and description",
+    host="api.stlouisfed.org",
+    base_path="/fred",
+    api_path="/series",
+    auth_type="api_key",
+    # NO secret_value parameter - automatically from secure context!
+    warehouse_id="<from context>",
+    catalog="<from context>",
+    schema="<from context>",
+    http_method="GET",
+    documentation_url="https://fred.stlouisfed.org/docs/api/",
+    parameters={"query_params": [{"name": "series_id", ...}]}
 )
 ```
 
