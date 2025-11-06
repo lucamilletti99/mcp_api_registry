@@ -355,14 +355,16 @@ async def delete_api(
 
         # Step 3: Drop the HTTP connection if we found one
         if connection_name:
-            drop_connection_query = f"""
-            DROP CONNECTION IF EXISTS `{catalog}`.`{schema}`.`{connection_name}`
-            """
+            # Use simple DROP syntax and pass catalog/schema as parameters
+            # This matches the working pattern in tools.py
+            drop_connection_query = f"DROP CONNECTION IF EXISTS {connection_name}"
 
             try:
                 drop_statement = ws.statement_execution.execute_statement(
                     warehouse_id=warehouse_id,
                     statement=drop_connection_query,
+                    catalog=catalog,  # Pass as parameter instead of in SQL
+                    schema=schema,    # Pass as parameter instead of in SQL
                     wait_timeout='30s'
                 )
 
@@ -373,15 +375,18 @@ async def delete_api(
                         "connection_deleted": True
                     }
                 else:
+                    # Get more error details
+                    error_msg = getattr(drop_statement.status, 'error', {})
                     print(f"⚠️  Failed to drop connection {connection_name}: {drop_statement.status.state}")
+                    print(f"    Error details: {error_msg}")
                     return {
-                        "message": "API deleted, but HTTP connection deletion failed",
+                        "message": f"API deleted, but HTTP connection deletion failed: {error_msg}",
                         "connection_deleted": False
                     }
             except Exception as drop_error:
                 print(f"⚠️  Error dropping connection {connection_name}: {drop_error}")
                 return {
-                    "message": "API deleted, but HTTP connection deletion failed",
+                    "message": f"API deleted, but HTTP connection deletion failed: {str(drop_error)}",
                     "connection_deleted": False
                 }
         else:
