@@ -108,11 +108,11 @@ After fetching documentation, show endpoints and request credential:
 **Public API (auth_type="none"):**
 ```
 📡 Available base paths:
-- /v1/accounting - Accounting data (v1)
-- /v2/accounting - Accounting data (v2)
-- /v1/debt - Debt-related data
+- /v1/accounting - Accounting data (od/rates_of_exchange, dts/deposits_withdrawals, mts/mts_table_9, etc.)
+- /v2/accounting - Accounting v2 (od/debt_to_penny, od/avg_interest_rates, etc.)
+- /v1/debt - Debt data (top/top_state, tror/data_act_compliance, etc.)
 
-[ENDPOINT_OPTIONS:{"api_name":"treasury_fiscal_data","host":"api.fiscaldata.treasury.gov","base_path":"/services/api/fiscal_service","auth_type":"none","endpoints":[{"path":"/v1/accounting","description":"Accounting data v1","method":"GET"},{"path":"/v2/accounting","description":"Accounting data v2","method":"GET"},{"path":"/v1/debt","description":"Debt data","method":"GET"}]}]
+[ENDPOINT_OPTIONS:{"api_name":"treasury_fiscal_data","host":"api.fiscaldata.treasury.gov","base_path":"/services/api/fiscal_service","auth_type":"none","endpoints":[{"path":"/v1/accounting","description":"Accounting data (od/rates_of_exchange, dts/deposits_withdrawals, mts/mts_table_9, etc.)","method":"GET"},{"path":"/v2/accounting","description":"Accounting v2 (od/debt_to_penny, od/avg_interest_rates, etc.)","method":"GET"},{"path":"/v1/debt","description":"Debt data (top/top_state, tror/data_act_compliance, etc.)","method":"GET"}]}]
 ```
 
 **Authenticated API:**
@@ -120,13 +120,13 @@ After fetching documentation, show endpoints and request credential:
 🔑 API Key Required
 
 Base paths:
-- /series - Series data
-- /category - Categories
+- /series - Series data (observations, search, categories, updates, etc.)
+- /category - Category operations (browse, children, related, series, etc.)
 
 Please provide your API key.
 
 [CREDENTIAL_REQUEST:API_KEY]
-[ENDPOINT_OPTIONS:{"api_name":"fred_api","host":"api.stlouisfed.org","base_path":"/fred","auth_type":"api_key","endpoints":[{"path":"/series","description":"Series data","method":"GET"},{"path":"/category","description":"Categories","method":"GET"}]}]
+[ENDPOINT_OPTIONS:{"api_name":"fred_api","host":"api.stlouisfed.org","base_path":"/fred","auth_type":"api_key","endpoints":[{"path":"/series","description":"Series data (observations, search, categories, updates, etc.)","method":"GET"},{"path":"/category","description":"Category operations (browse, children, related, series, etc.)","method":"GET"}]}]
 ```
 
 **🚨 CRITICAL MARKER RULES:**
@@ -136,6 +136,10 @@ Please provide your API key.
   - ✅ GOOD: `/repos`, `/user`, `/v1/accounting`, `/v2/debt`
   - ❌ BAD: `/v1/accounting/od/rates_of_exchange`, `/repos/{owner}/{repo}/commits`
   - **RULE**: If a path has more than 3 segments (/ slashes), it's TOO DETAILED!
+- **Descriptions must list sub-paths** (not just rephrase the path name)
+  - ✅ GOOD: "Series data (observations, search, categories, updates, etc.)"
+  - ❌ BAD: "Series data" or "Series operations"
+  - This helps users understand what's available under each base path!
 - JSON must be valid and on one line
 
 **Without markers → Dialog won't show → Registration fails!**
