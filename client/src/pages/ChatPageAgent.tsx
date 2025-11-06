@@ -1575,7 +1575,7 @@ export function ChatPageAgent({
 
       {/* Secure Credential Input Dialog */}
       <Dialog open={showCredentialDialog} onOpenChange={setShowCredentialDialog}>
-        <DialogContent className={`sm:max-w-2xl max-h-[90vh] overflow-y-auto ${
+        <DialogContent className={`sm:max-w-4xl max-h-[90vh] overflow-y-auto ${
           isDark 
             ? "bg-[#1C3D42] border-white/20 text-white" 
             : "bg-white border-gray-200 text-gray-900"
