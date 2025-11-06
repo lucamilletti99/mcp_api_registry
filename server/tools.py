@@ -947,9 +947,41 @@ SELECT http_request(
       try:
         response_json = json.loads(response_data)
         
-        # Check if response indicates an error (404, 500, etc.)
+        # Check if response indicates an error (4xx, 5xx, etc.)
         status_code = response_json.get('status_code', '200')
-        if status_code == '404':
+        status_code_int = int(status_code) if isinstance(status_code, str) else status_code
+        
+        # Handle specific error codes
+        if status_code == '401' or status_code_int == 401:
+          print(f"❌ API returned 401 - Unauthorized: {path}")
+          return {
+            'success': False,
+            'error': f"401 Unauthorized - Authentication failed. Check your bearer token/API key in secret scope '{secret_scope}'",
+            'status_code': 401,
+            'api_name': api_name,
+            'base_path': base_path,
+            'path': path,
+            'method': http_method,
+            'auth_type': auth_type,
+            'secret_scope': secret_scope,
+            'sql_query': call_sql,
+            'response': response_json,
+            'hint': f"Verify secret exists: databricks secrets list --scope {secret_scope}"
+          }
+        elif status_code == '403' or status_code_int == 403:
+          print(f"❌ API returned 403 - Forbidden: {path}")
+          return {
+            'success': False,
+            'error': f"403 Forbidden - Access denied. Check your credentials and permissions.",
+            'status_code': 403,
+            'api_name': api_name,
+            'base_path': base_path,
+            'path': path,
+            'method': http_method,
+            'sql_query': call_sql,
+            'response': response_json
+          }
+        elif status_code == '404' or status_code_int == 404:
           print(f"⚠️  API returned 404 - Path not found: {path}")
           return {
             'success': False,
@@ -962,8 +994,21 @@ SELECT http_request(
             'sql_query': call_sql,
             'response': response_json
           }
+        elif status_code_int >= 400:
+          print(f"❌ API returned error status {status_code}: {path}")
+          return {
+            'success': False,
+            'error': f"HTTP {status_code} Error - API request failed",
+            'status_code': status_code_int,
+            'api_name': api_name,
+            'base_path': base_path,
+            'path': path,
+            'method': http_method,
+            'sql_query': call_sql,
+            'response': response_json
+          }
         
-        # Success response
+        # Success response (2xx status codes)
         print(f"✅ API call successful (status: {status_code})")
         return {
           'success': True,
