@@ -551,25 +551,29 @@ export function ChatPageAgent({
         return;
       }
 
-      // Check if response asks for API key or bearer token
-      const responseText = data.response.toLowerCase();
-      const needsApiKey = responseText.includes("api key") && 
-                          (responseText.includes("provide") || responseText.includes("need") || responseText.includes("enter"));
-      const needsBearerToken = responseText.includes("bearer token") && 
-                               (responseText.includes("provide") || responseText.includes("need") || responseText.includes("enter"));
+      // Check if response contains credential request markers
+      const responseText = data.response;
+      const needsApiKey = responseText.includes("[CREDENTIAL_REQUEST:API_KEY]");
+      const needsBearerToken = responseText.includes("[CREDENTIAL_REQUEST:BEARER_TOKEN]");
       
-      // Extract API name if mentioned (simple heuristic)
+      // Extract API name if mentioned (look for it in the response)
       let apiName = "";
-      const apiNameMatch = data.response.match(/(?:register|for|the)\s+([A-Z][a-zA-Z0-9_\s]+?)(?:\s+API|\s+api|endpoint)/i);
+      const apiNameMatch = responseText.match(/for\s+([A-Za-z0-9_\s-]+?)[\.\n\[]|provide your (?:API key|bearer token) for ([A-Za-z0-9_\s-]+)/i);
       if (apiNameMatch) {
-        apiName = apiNameMatch[1].trim();
+        apiName = (apiNameMatch[1] || apiNameMatch[2] || "").trim();
       }
+
+      // Remove the marker from the displayed message
+      let displayedResponse = responseText
+        .replace(/\[CREDENTIAL_REQUEST:API_KEY\]/g, "")
+        .replace(/\[CREDENTIAL_REQUEST:BEARER_TOKEN\]/g, "")
+        .trim();
 
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: data.response,
+          content: displayedResponse,
           tool_calls: data.tool_calls,
           trace_id: data.trace_id,
         },

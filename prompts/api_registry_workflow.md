@@ -661,6 +661,20 @@ SELECT http_request(
 - API key stored in Databricks secrets
 - At runtime, key is retrieved and **added to query params**
 
+**🔐 CRITICAL: How to Request API Keys from Users**
+
+**When you determine an API needs an API key, you MUST ask the user using this EXACT format:**
+
+```
+🔑 API Key Required
+
+This API requires an API key for authentication. Please provide your API key for [API_NAME].
+
+[CREDENTIAL_REQUEST:API_KEY]
+```
+
+**The `[CREDENTIAL_REQUEST:API_KEY]` marker triggers the secure input dialog!**
+
 **Registration:**
 ```python
 register_api(
@@ -707,6 +721,20 @@ SELECT http_request(
 - Connection **references the secret**: `bearer_token: secret(...)`
 - Token stored in Databricks secrets
 - Databricks automatically adds `Authorization: Bearer <token>` header
+
+**🔐 CRITICAL: How to Request Bearer Tokens from Users**
+
+**When you determine an API needs a bearer token, you MUST ask the user using this EXACT format:**
+
+```
+🔑 Bearer Token Required
+
+This API requires a bearer token for authentication. Please provide your bearer token for [API_NAME].
+
+[CREDENTIAL_REQUEST:BEARER_TOKEN]
+```
+
+**The `[CREDENTIAL_REQUEST:BEARER_TOKEN]` marker triggers the secure input dialog!**
 
 **Registration:**
 ```python
@@ -779,6 +807,65 @@ secret('mcp_bearer_tokens', '<api_name>')
 
 **✅ CORRECT PATTERN:**
 - ✅ `secret('mcp_api_keys', '<exact_api_name>')` - Just the API name, nothing else!
+
+---
+
+### 🔐 Requesting Credentials from Users - IMPORTANT WORKFLOW!
+
+**When you need to register an API that requires authentication, follow this workflow:**
+
+#### Step 1: Fetch Documentation First
+```python
+fetch_api_documentation(documentation_url="...")
+```
+
+#### Step 2: Determine Auth Type from Documentation
+Analyze the response to determine if it needs `api_key` or `bearer_token`.
+
+#### Step 3: Request Credential Using the Marker
+**YOU MUST include the exact marker to trigger the secure input dialog:**
+
+**For API Key:**
+```
+🔑 API Key Required
+
+I need to register the FRED Economic Data API. This API requires an API key for authentication. 
+Please provide your API key for FRED.
+
+[CREDENTIAL_REQUEST:API_KEY]
+```
+
+**For Bearer Token:**
+```
+🔑 Bearer Token Required
+
+I need to register the GitHub API. This API requires a bearer token for authentication.
+Please provide your bearer token for GitHub.
+
+[CREDENTIAL_REQUEST:BEARER_TOKEN]
+```
+
+#### Step 4: Wait for User to Provide Credential
+The frontend will show a secure password-masked input dialog. The user will enter their credential and click "Submit".
+
+#### Step 5: User's Response Will Contain the Credential
+The user's next message will be: `"My api key is: <actual_key>"` or `"My bearer token is: <actual_token>"`
+
+#### Step 6: Now Register the API
+```python
+register_api(
+    api_name="fred_economic_data",
+    auth_type="api_key",
+    secret_value="<use the credential from user's message>",
+    ...
+)
+```
+
+**🚨 CRITICAL:**
+- **ALWAYS use the marker** `[CREDENTIAL_REQUEST:API_KEY]` or `[CREDENTIAL_REQUEST:BEARER_TOKEN]`
+- The marker MUST be on its own line
+- DO NOT proceed with registration until the user provides the credential
+- DO NOT make up or guess credentials
 
 ---
 
