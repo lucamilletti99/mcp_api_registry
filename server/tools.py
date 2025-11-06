@@ -852,14 +852,16 @@ LIMIT 1
       if not result.get('success'):
         return {'success': False, 'error': f"Failed to lookup API '{api_name}': {result.get('error')}"}
       
-      if not result.get('data') or len(result['data']) == 0:
+      # _execute_sql_query returns data as {'columns': [...], 'rows': [...]}
+      rows = result.get('data', {}).get('rows', [])
+      if not rows or len(rows) == 0:
         return {
           'success': False,
           'error': f"API '{api_name}' not found in registry. Please register it first using register_api().",
           'hint': "Check available APIs with check_api_http_registry()"
         }
       
-      api_info = result['data'][0]
+      api_info = rows[0]
       connection_name = api_info['connection_name']
       auth_type = api_info['auth_type']
       secret_scope = api_info['secret_scope']
@@ -919,10 +921,12 @@ SELECT http_request(
       if not call_result.get('success'):
         return {'success': False, 'error': f"API call failed: {call_result.get('error')}"}
       
-      if not call_result.get('data') or len(call_result['data']) == 0:
+      # _execute_sql_query returns data as {'columns': [...], 'rows': [...]}
+      response_rows = call_result.get('data', {}).get('rows', [])
+      if not response_rows or len(response_rows) == 0:
         return {'success': False, 'error': "No response from API"}
       
-      response_data = call_result['data'][0].get('response', '')
+      response_data = response_rows[0].get('response', '')
       
       # Try to parse JSON response
       try:
