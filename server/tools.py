@@ -883,8 +883,8 @@ LIMIT 1
       # Step 2: Build SQL query using http_request() function
       # The connection already has auth configured, so we just call it
       
-      # Build params map
-      params_sql = "map()"
+      # Build params map - use NULL if empty (map() creates MAP<VOID,VOID> which causes type errors)
+      params_sql = "NULL"
       if params:
         param_pairs = []
         for key, value in params.items():
@@ -894,8 +894,8 @@ LIMIT 1
             param_pairs.append(f"'{key}', cast({value} as string)")
         params_sql = f"map({', '.join(param_pairs)})"
       
-      # Build headers map
-      headers_sql = "map()"
+      # Build headers map - use NULL if empty (map() creates MAP<VOID,VOID> which causes type errors)
+      headers_sql = "NULL"
       if headers:
         header_pairs = []
         for key, value in headers.items():
