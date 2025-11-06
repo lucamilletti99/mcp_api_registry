@@ -858,14 +858,14 @@ Analyze the response to determine if it needs `api_key` or `bearer_token`.
 
 I've analyzed the Treasury Fiscal Data API documentation. This is a public API (no authentication required).
 
-I found several useful endpoints. Please select which ones you want to register.
+I found several useful base API paths. Please select which ones you want to register.
 
-Available endpoints:
-- /v1/accounting/od/rates_of_exchange - Foreign exchange rates
-- /v1/debt/mspd/mspd_table_1 - Monthly statement of public debt
-- /v1/accounting/dts/dts_table_1 - Daily treasury statement
+Available base paths:
+- /v1/accounting - Accounting data
+- /v1/debt - Public debt data
+- /v1/revenue - Revenue collections
 
-[ENDPOINT_OPTIONS:{"api_name":"treasury_fiscal_data","host":"api.fiscaldata.treasury.gov","base_path":"/services/api/fiscal_service","auth_type":"none","endpoints":[{"path":"/v1/accounting/od/rates_of_exchange","description":"Foreign exchange rates","method":"GET","params":{}},{"path":"/v1/debt/mspd/mspd_table_1","description":"Monthly statement of public debt","method":"GET","params":{}},{"path":"/v1/accounting/dts/dts_table_1","description":"Daily treasury statement","method":"GET","params":{}}]}]
+[ENDPOINT_OPTIONS:{"api_name":"treasury_fiscal_data","host":"api.fiscaldata.treasury.gov","base_path":"/services/api/fiscal_service","auth_type":"none","endpoints":[{"path":"/v1/accounting","description":"Accounting data","method":"GET","params":{}},{"path":"/v1/debt","description":"Public debt data","method":"GET","params":{}},{"path":"/v1/revenue","description":"Revenue collections","method":"GET","params":{}}]}]
 ```
 
 **Scenario B: Authenticated API (auth_type="api_key" or "bearer_token") - Credential Required:**
@@ -876,17 +876,17 @@ Available endpoints:
 
 I've analyzed the FRED API documentation. This API requires an API key for authentication.
 
-I found several useful endpoints. You'll be able to select which ones to register after providing your credential.
+I found several useful base API paths. You'll be able to select which ones to register after providing your credential.
 
-Available endpoints:
-- /fred/series/observations - Get economic data for a specific series (GDP, unemployment, etc.)
-- /fred/series - Get series metadata and description
-- /fred/category - Browse economic data categories
+Available base paths:
+- /series - Series data and metadata
+- /category - Category operations
+- /releases - Data releases
 
 Please provide your API key for FRED.
 
 [CREDENTIAL_REQUEST:API_KEY]
-[ENDPOINT_OPTIONS:{"api_name":"fred_economic_data","host":"api.stlouisfed.org","base_path":"/fred","auth_type":"api_key","endpoints":[{"path":"/series/observations","description":"Get economic data for a specific series (GDP, unemployment, etc.)","method":"GET","params":{"series_id":{"required":true,"type":"string","description":"Series identifier like GDPC1"}}},{"path":"/series","description":"Get series metadata and description","method":"GET","params":{"series_id":{"required":true,"type":"string","description":"Series identifier"}}},{"path":"/category","description":"Browse economic data categories","method":"GET","params":{"category_id":{"required":false,"type":"string","description":"Category ID to browse"}}}]}]
+[ENDPOINT_OPTIONS:{"api_name":"fred_economic_data","host":"api.stlouisfed.org","base_path":"/fred","auth_type":"api_key","endpoints":[{"path":"/series","description":"Series data and metadata","method":"GET","params":{}},{"path":"/category","description":"Category operations","method":"GET","params":{}},{"path":"/releases","description":"Data releases","method":"GET","params":{}}]}]
 ```
 
 **For Bearer Token:**
@@ -895,27 +895,30 @@ Please provide your API key for FRED.
 
 I've analyzed the GitHub API documentation. This API requires a bearer token for authentication.
 
-I found several useful endpoints. You'll be able to select which ones to register after providing your credential.
+I found several useful base API paths. You'll be able to select which ones to register after providing your credential.
 
-Available endpoints:
-- /user/repos - List authenticated user's repositories
-- /repos/{owner}/{repo} - Get repository details
-- /repos/{owner}/{repo}/commits - Get repository commits
+Available base paths:
+- /repos - Repository operations
+- /user - Authenticated user operations
+- /orgs - Organization operations
 
 Please provide your bearer token for GitHub.
 
 [CREDENTIAL_REQUEST:BEARER_TOKEN]
-[ENDPOINT_OPTIONS:{"api_name":"github_api","host":"api.github.com","base_path":"","auth_type":"bearer_token","endpoints":[{"path":"/user/repos","description":"List authenticated user's repositories","method":"GET","params":{"type":{"required":false,"type":"string","description":"Repository type filter"}}},{"path":"/repos/{owner}/{repo}","description":"Get repository details","method":"GET","params":{"owner":{"required":true,"type":"string","description":"Repository owner"},"repo":{"required":true,"type":"string","description":"Repository name"}}},{"path":"/repos/{owner}/{repo}/commits","description":"Get repository commits","method":"GET","params":{"owner":{"required":true,"type":"string","description":"Repository owner"},"repo":{"required":true,"type":"string","description":"Repository name"}}}]}]
+[ENDPOINT_OPTIONS:{"api_name":"github_api","host":"api.github.com","base_path":"","auth_type":"bearer_token","endpoints":[{"path":"/repos","description":"Repository operations","method":"GET","params":{}},{"path":"/user","description":"Authenticated user operations","method":"GET","params":{}},{"path":"/orgs","description":"Organization operations","method":"GET","params":{}}]}]
 ```
 
 **🚨 CRITICAL FORMAT RULES:**
-- Always list 2-5 most useful endpoints from the documentation
+- **KEEP IT SIMPLE**: Only list 2-5 **BASE API paths**, not every detailed endpoint!
+  - ✅ GOOD: `/repos`, `/user`, `/orgs` (base paths)
+  - ❌ BAD: `/repos/{owner}/{repo}/collaborators`, `/repos/{owner}/{repo}/contents/{path}` (too detailed)
 - **YOU MUST LITERALLY TYPE** the `[ENDPOINT_OPTIONS:{...}]` marker in your response
 - **YOU MUST LITERALLY TYPE** the `[CREDENTIAL_REQUEST:...]` marker if auth is needed
 - JSON must be valid and on a single line
 - Must include: api_name, host, base_path, auth_type, endpoints array
-- Each endpoint needs: path, description, method, params (optional)
+- Each endpoint needs: path (base path only!), description (brief), method, params (empty object)
 
+**⚠️ SIMPLICITY RULE: Use BASE paths like `/repos`, `/user`, not `/repos/{owner}/{repo}/commits`**
 **⚠️ COMMON MISTAKE: Describing endpoints without including the markers!**
 **The markers are not suggestions - they are REQUIRED literal text in your response!**
 **Copy-paste the exact format from the examples above, including the square brackets!**
