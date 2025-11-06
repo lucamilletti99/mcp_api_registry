@@ -42,10 +42,10 @@ CREATE TABLE IF NOT EXISTS {catalog}.{schema}.api_http_registry (
   modified_date TIMESTAMP,
 
   -- Primary key
-  CONSTRAINT api_http_registry_pk PRIMARY KEY (api_id),
+  CONSTRAINT api_http_registry_pk PRIMARY KEY (api_id)
   
-  -- Unique constraint on API name to prevent duplicates
-  CONSTRAINT api_name_unique UNIQUE (api_name)
+  -- Note: API name uniqueness is enforced at application level (check_registry tool)
+  -- Database-level UNIQUE constraint requires spark.databricks.sql.dsv2.unique.enabled=true
 )
 COMMENT 'API Registry - ONE ENTRY PER API. Register once (host+base_path), call dynamically with any path at runtime.'
 -- Default value features
