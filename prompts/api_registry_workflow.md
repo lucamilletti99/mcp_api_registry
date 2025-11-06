@@ -823,27 +823,47 @@ fetch_api_documentation(documentation_url="...")
 Analyze the response to determine if it needs `api_key` or `bearer_token`.
 
 #### Step 3: Request Credential Using the Marker
-**YOU MUST include the exact marker to trigger the secure input dialog:**
+**YOU MUST include the exact marker AND list available endpoints:**
 
 **For API Key:**
 ```
 🔑 API Key Required
 
-I need to register the FRED Economic Data API. This API requires an API key for authentication. 
-Please provide your API key for FRED.
+I've analyzed the FRED API documentation. This API requires an API key for authentication.
+
+Available endpoints you can use with this API:
+- /fred/series/observations - Get economic data for a specific series (GDP, unemployment, etc.)
+- /fred/series - Get series metadata and description
+- /fred/category - Browse economic data categories
+
+Please provide your API key for FRED to register these endpoints.
 
 [CREDENTIAL_REQUEST:API_KEY]
+[ENDPOINTS:{"endpoints":[{"path":"/fred/series/observations","description":"Get economic data for a specific series (GDP, unemployment, etc.)","method":"GET"},{"path":"/fred/series","description":"Get series metadata and description","method":"GET"},{"path":"/fred/category","description":"Browse economic data categories","method":"GET"}]}]
 ```
 
 **For Bearer Token:**
 ```
 🔑 Bearer Token Required
 
-I need to register the GitHub API. This API requires a bearer token for authentication.
-Please provide your bearer token for GitHub.
+I've analyzed the GitHub API documentation. This API requires a bearer token for authentication.
+
+Available endpoints you can use with this API:
+- /user/repos - List authenticated user's repositories
+- /repos/{owner}/{repo} - Get repository details
+- /repos/{owner}/{repo}/commits - Get repository commits
+
+Please provide your bearer token for GitHub to register these endpoints.
 
 [CREDENTIAL_REQUEST:BEARER_TOKEN]
+[ENDPOINTS:{"endpoints":[{"path":"/user/repos","description":"List authenticated user's repositories","method":"GET"},{"path":"/repos/{owner}/{repo}","description":"Get repository details","method":"GET"},{"path":"/repos/{owner}/{repo}/commits","description":"Get repository commits","method":"GET"}]}]
 ```
+
+**🚨 CRITICAL FORMAT RULES:**
+- Always list 2-5 most useful endpoints from the documentation
+- Include the `[ENDPOINTS:{...}]` marker with JSON data
+- JSON must be valid and on a single line
+- Each endpoint needs: path, description, method
 
 #### Step 4: Wait for User to Provide Credential
 The frontend will show a secure password-masked input dialog. The user will enter their credential and click "Submit".

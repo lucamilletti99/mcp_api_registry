@@ -126,6 +126,11 @@ export function ChatPageAgent({
   const [credentialType, setCredentialType] = useState<"api_key" | "bearer_token">("api_key");
   const [credentialValue, setCredentialValue] = useState<string>("");
   const [pendingApiName, setPendingApiName] = useState<string>("");
+  const [pendingEndpoints, setPendingEndpoints] = useState<Array<{
+    path: string;
+    description: string;
+    method: string;
+  }>>([]);
   
   // Secure credential storage - stored in session, not in messages!
   const [storedCredentials, setStoredCredentials] = useState<{
@@ -444,10 +449,25 @@ export function ChatPageAgent({
         apiName = (apiNameMatch[1] || apiNameMatch[2] || "").trim();
       }
 
-      // Remove the marker from the displayed message
+      // Extract endpoints information if present
+      let endpoints: Array<{path: string; description: string; method: string}> = [];
+      const endpointsMatch = responseText.match(/\[ENDPOINTS:(\{.*?\})\]/);
+      if (endpointsMatch) {
+        try {
+          const endpointsData = JSON.parse(endpointsMatch[1]);
+          if (endpointsData.endpoints && Array.isArray(endpointsData.endpoints)) {
+            endpoints = endpointsData.endpoints;
+          }
+        } catch (e) {
+          console.error("Failed to parse endpoints data:", e);
+        }
+      }
+
+      // Remove the markers from the displayed message
       let displayedResponse = responseText
         .replace(/\[CREDENTIAL_REQUEST:API_KEY\]/g, "")
         .replace(/\[CREDENTIAL_REQUEST:BEARER_TOKEN\]/g, "")
+        .replace(/\[ENDPOINTS:\{.*?\}\]/g, "")
         .trim();
 
       // Add the assistant's response
@@ -465,6 +485,7 @@ export function ChatPageAgent({
       if (needsApiKey || needsBearerToken) {
         setCredentialType(needsBearerToken ? "bearer_token" : "api_key");
         setPendingApiName(apiName);
+        setPendingEndpoints(endpoints);
         setShowCredentialDialog(true);
       }
 
@@ -1477,7 +1498,7 @@ export function ChatPageAgent({
 
       {/* Secure Credential Input Dialog */}
       <Dialog open={showCredentialDialog} onOpenChange={setShowCredentialDialog}>
-        <DialogContent className={`sm:max-w-md ${
+        <DialogContent className={`sm:max-w-2xl max-h-[90vh] overflow-y-auto ${
           isDark 
             ? "bg-[#1C3D42] border-white/20 text-white" 
             : "bg-white border-gray-200 text-gray-900"
@@ -1493,6 +1514,51 @@ export function ChatPageAgent({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {/* Show available endpoints if provided */}
+            {pendingEndpoints.length > 0 && (
+              <div className={`rounded-lg border p-4 space-y-3 ${
+                isDark ? "border-white/20 bg-black/10" : "border-gray-200 bg-gray-50"
+              }`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">📡</span>
+                  <h4 className={`font-semibold text-sm ${isDark ? "text-white" : "text-gray-900"}`}>
+                    Available Endpoints ({pendingEndpoints.length})
+                  </h4>
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {pendingEndpoints.map((endpoint, idx) => (
+                    <div 
+                      key={idx}
+                      className={`text-xs p-2 rounded ${
+                        isDark ? "bg-white/5" : "bg-white"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <code className={`font-mono font-medium ${
+                          isDark ? "text-blue-400" : "text-blue-600"
+                        }`}>
+                          {endpoint.method}
+                        </code>
+                        <code className={`font-mono text-xs ${
+                          isDark ? "text-green-400" : "text-green-600"
+                        }`}>
+                          {endpoint.path}
+                        </code>
+                      </div>
+                      <p className={`text-xs ${isDark ? "text-white/60" : "text-gray-600"}`}>
+                        {endpoint.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <p className={`text-xs pt-2 border-t ${
+                  isDark ? "text-white/40 border-white/10" : "text-gray-500 border-gray-200"
+                }`}>
+                  💡 These endpoints will be available once you provide your credential
+                </p>
+              </div>
+            )}
+            
             <div className="space-y-2">
               <label className={`text-sm font-medium ${isDark ? "text-white" : "text-gray-900"}`}>
                 {credentialType === "api_key" ? "API Key" : "Bearer Token"}
