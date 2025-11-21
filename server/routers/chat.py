@@ -35,7 +35,7 @@ class ChatRequest(BaseModel):
     """Request to send a chat message."""
 
     messages: List[ChatMessage]
-    model: str = 'databricks-meta-llama-3-3-70b-instruct'  # Default model
+    model: str = 'databricks-gpt-5'  # Default model
     max_tokens: int = 4096
 
 
@@ -67,11 +67,115 @@ async def list_available_models() -> Dict[str, Any]:
     # Based on Databricks Model Serving catalog
     models = [
         {
+            'id': 'databricks-gpt-5-1',
+            'name': 'GPT-5.1',
+            'provider': 'OpenAI',
+            'supports_tools': True,
+            'context_window': 128000,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-gpt-5',
+            'name': 'GPT-5',
+            'provider': 'OpenAI',
+            'supports_tools': True,
+            'context_window': 128000,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-gemini-2-5-flash',
+            'name': 'Gemini 2.5 Flash',
+            'provider': 'Google',
+            'supports_tools': True,
+            'context_window': 1000000,
+            'type': 'Pay-per-token',
+        },
+        {
             'id': 'databricks-claude-sonnet-4-5',
             'name': 'Claude Sonnet 4.5',
             'provider': 'Anthropic',
-            'supports_tools': False,
+            'supports_tools': True,
             'context_window': 200000,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-gpt-oss-120b',
+            'name': 'GPT OSS 120B',
+            'provider': 'OpenAI',
+            'supports_tools': True,
+            'context_window': 8192,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-gpt-5-mini',
+            'name': 'GPT-5 Mini',
+            'provider': 'OpenAI',
+            'supports_tools': True,
+            'context_window': 128000,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-gpt-5-nano',
+            'name': 'GPT-5 Nano',
+            'provider': 'OpenAI',
+            'supports_tools': True,
+            'context_window': 128000,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-gemini-2-5-pro',
+            'name': 'Gemini 2.5 Pro',
+            'provider': 'Google',
+            'supports_tools': True,
+            'context_window': 2000000,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-gpt-oss-20b',
+            'name': 'GPT OSS 20B',
+            'provider': 'OpenAI',
+            'supports_tools': True,
+            'context_window': 8192,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-qwen3-next-80b-a3b-instruct',
+            'name': 'Qwen3 Next Instruct Beta',
+            'provider': 'Qwen',
+            'supports_tools': True,
+            'context_window': 32000,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-llama-4-maverick',
+            'name': 'Llama 4 Maverick',
+            'provider': 'Meta',
+            'supports_tools': True,
+            'context_window': 128000,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-gemma-3-12b',
+            'name': 'Gemma 3 12B',
+            'provider': 'Google',
+            'supports_tools': True,
+            'context_window': 32000,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-meta-llama-3-1-8b-instruct',
+            'name': 'Meta Llama 3.1 8B Instruct',
+            'provider': 'Meta',
+            'supports_tools': False,
+            'context_window': 128000,
+            'type': 'Pay-per-token',
+        },
+        {
+            'id': 'databricks-meta-llama-3-3-70b-instruct',
+            'name': 'Meta Llama 3.3 70B Instruct',
+            'provider': 'Meta',
+            'supports_tools': True,
+            'context_window': 128000,
             'type': 'Pay-per-token',
         },
         {
@@ -99,14 +203,6 @@ async def list_available_models() -> Dict[str, Any]:
             'type': 'Pay-per-token',
         },
         {
-            'id': 'databricks-meta-llama-3-3-70b-instruct',
-            'name': 'Meta Llama 3.3 70B Instruct',
-            'provider': 'Meta',
-            'supports_tools': True,
-            'context_window': 128000,
-            'type': 'Pay-per-token',
-        },
-        {
             'id': 'databricks-meta-llama-3-1-405b-instruct',
             'name': 'Meta Llama 3.1 405B Instruct',
             'provider': 'Meta',
@@ -114,49 +210,9 @@ async def list_available_models() -> Dict[str, Any]:
             'context_window': 128000,
             'type': 'Pay-per-token',
         },
-        {
-            'id': 'databricks-meta-llama-3-1-8b-instruct',
-            'name': 'Meta Llama 3.1 8B Instruct',
-            'provider': 'Meta',
-            'supports_tools': False,
-            'context_window': 128000,
-            'type': 'Pay-per-token',
-        },
-        {
-            'id': 'databricks-llama-4-maverick',
-            'name': 'Llama 4 Maverick',
-            'provider': 'Meta',
-            'supports_tools': False,
-            'context_window': 128000,
-            'type': 'Pay-per-token',
-        },
-        {
-            'id': 'databricks-gemma-3-12b',
-            'name': 'Gemma 3 12B',
-            'provider': 'Google',
-            'supports_tools': True,
-            'context_window': 32000,
-            'type': 'Pay-per-token',
-        },
-        {
-            'id': 'databricks-gpt-oss-120b',
-            'name': 'GPT OSS 120B',
-            'provider': 'OpenAI',
-            'supports_tools': True,
-            'context_window': 8192,
-            'type': 'Pay-per-token',
-        },
-        {
-            'id': 'databricks-gpt-oss-20b',
-            'name': 'GPT OSS 20B',
-            'provider': 'OpenAI',
-            'supports_tools': True,
-            'context_window': 8192,
-            'type': 'Pay-per-token',
-        },
     ]
 
-    return {'models': models, 'default': 'databricks-claude-sonnet-4'}  # Claude Sonnet 4 is the best
+    return {'models': models, 'default': 'databricks-gpt-5'}
 
 
 def convert_mcp_tools_to_openai_format(mcp_tools: List[Any]) -> List[Dict[str, Any]]:
