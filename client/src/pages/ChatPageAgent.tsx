@@ -101,8 +101,20 @@ export function ChatPageAgent({
   // TWO-DROPDOWN ARCHITECTURE: Separate catalog and schema
   const [catalogs, setCatalogs] = useState<{name: string; comment?: string}[]>([]);
   const [schemas, setSchemas] = useState<{name: string; comment?: string}[]>([]);
-  const [selectedCatalog, setSelectedCatalog] = useState<string>("");
-  const [selectedSchema, setSelectedSchema] = useState<string>("");
+  
+  // Initialize from parent prop if available
+  const [selectedCatalog, setSelectedCatalog] = useState<string>(() => {
+    if (selectedCatalogSchema && selectedCatalogSchema.includes('.')) {
+      return selectedCatalogSchema.split('.')[0];
+    }
+    return "";
+  });
+  const [selectedSchema, setSelectedSchema] = useState<string>(() => {
+    if (selectedCatalogSchema && selectedCatalogSchema.includes('.')) {
+      return selectedCatalogSchema.split('.')[1];
+    }
+    return "";
+  });
   const [catalogFilter, setCatalogFilter] = useState<string>("");
   const [schemaFilter, setSchemaFilter] = useState<string>("");
   const [debouncedCatalogFilter, setDebouncedCatalogFilter] = useState<string>("");
@@ -162,8 +174,13 @@ export function ChatPageAgent({
   useEffect(() => {
     if (selectedCatalogSchema && selectedCatalogSchema.includes('.')) {
       const [catalog, schema] = selectedCatalogSchema.split('.');
-      if (catalog !== selectedCatalog) setSelectedCatalog(catalog);
-      if (schema !== selectedSchema) setSelectedSchema(schema);
+      console.log(`📊 Initializing from parent prop: catalog="${catalog}", schema="${schema}"`);
+      if (catalog !== selectedCatalog) {
+        setSelectedCatalog(catalog);
+      }
+      if (schema !== selectedSchema) {
+        setSelectedSchema(schema);
+      }
     }
   }, [selectedCatalogSchema]);
 
@@ -280,7 +297,8 @@ export function ChatPageAgent({
       setCatalogs(filtered);
       
       // Set first catalog as default if available and not already set
-      if (filtered.length > 0 && !selectedCatalog) {
+      // But only if parent prop doesn't have a default
+      if (filtered.length > 0 && !selectedCatalog && !selectedCatalogSchema) {
         console.log(`📊 Setting default catalog: ${filtered[0].name}`);
         setSelectedCatalog(filtered[0].name);
       } else if (filtered.length === 0) {
@@ -309,7 +327,8 @@ export function ChatPageAgent({
       setSchemas(filtered);
       
       // Set first schema as default if available and not already set
-      if (filtered.length > 0 && !selectedSchema) {
+      // But only if parent prop doesn't have a default
+      if (filtered.length > 0 && !selectedSchema && !selectedCatalogSchema) {
         console.log(`📊 Setting default schema: ${filtered[0].name}`);
         setSelectedSchema(filtered[0].name);
       } else if (filtered.length === 0) {
@@ -334,7 +353,7 @@ export function ChatPageAgent({
       const data = await response.json();
       
       console.log("✅ Catalog schemas data:", data);
-      setCatalogSchemas(data.catalog_schemas || []);
+      // setCatalogSchemas(data.catalog_schemas || []); // DEPRECATED - no longer used
       
       // Warn if there are more results
       if (data.has_more) {
@@ -350,7 +369,7 @@ export function ChatPageAgent({
       }
     } catch (error) {
       console.error("❌ Failed to fetch catalog schemas:", error);
-      setCatalogSchemas([]);
+      // setCatalogSchemas([]); // DEPRECATED - no longer used
     }
   };
 
