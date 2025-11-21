@@ -21,7 +21,7 @@ function App() {
 
   // Shared state for warehouse and catalog/schema selection
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>("");
-  const [selectedCatalogSchema, setSelectedCatalogSchema] = useState<string>("");
+  const [selectedCatalogSchema, setSelectedCatalogSchema] = useState<string>("lucam_catalog.custom_mcp_server");
 
   const isDark = theme === "dark";
 
